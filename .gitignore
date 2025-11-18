@@ -1,4 +1,5 @@
 build/
+docs/
 cmake-build-*/
 *.o
 *.obj

@@ -99,9 +99,39 @@ public:
         : catalog(cat), lsmTrees(trees) {}
 
     string execute(const string& sql) {
-        auto toLower = [](const string &s){ string o=s; for(char &c:o) c=static_cast<char>(tolower((unsigned char)c)); return o; };
-        auto trim = [](const string &s){ size_t a = s.find_first_not_of(" \t\n\r"); if(a==string::npos) return string(); size_t b = s.find_last_not_of(" \t\n\r"); return s.substr(a,b-a+1); };
-        auto splitArgs = [&](const string &s){ vector<string> out; string cur; for(char c: s){ if(c==','){ size_t a = cur.find_first_not_of(" \t\n\r"); size_t b = cur.find_last_not_of(" \t\n\r"); if(a==string::npos) out.push_back(string()); else out.push_back(cur.substr(a,b-a+1)); cur.clear(); } else cur.push_back(c);} if(!cur.empty()){ size_t a = cur.find_first_not_of(" \t\n\r"); size_t b = cur.find_last_not_of(" \t\n\r"); if(a==string::npos) out.push_back(string()); else out.push_back(cur.substr(a,b-a+1)); } return out; };
+        auto toLower = [](const string &s){ 
+            string o=s; 
+            for(char &c:o) c=static_cast<char>(tolower((unsigned char)c)); 
+            return o; 
+        };
+        
+        auto trim = [](const string &s){ 
+            size_t a = s.find_first_not_of(" \t\n\r"); 
+            if(a==string::npos) return string(); 
+            size_t b = s.find_last_not_of(" \t\n\r"); 
+            return s.substr(a,b-a+1); 
+        };
+        
+        auto splitArgs = [&](const string &s){ 
+            vector<string> out; 
+            string cur; 
+            for(char c: s){ 
+                if(c==','){ 
+                    size_t a = cur.find_first_not_of(" \t\n\r"); 
+                    size_t b = cur.find_last_not_of(" \t\n\r"); 
+                    if(a==string::npos) out.push_back(string()); 
+                    else out.push_back(cur.substr(a,b-a+1)); 
+                    cur.clear(); 
+                } else cur.push_back(c);
+            } 
+            if(!cur.empty()){ 
+                size_t a = cur.find_first_not_of(" \t\n\r"); 
+                size_t b = cur.find_last_not_of(" \t\n\r"); 
+                if(a==string::npos) out.push_back(string()); 
+                else out.push_back(cur.substr(a,b-a+1)); 
+            } 
+            return out; 
+        };
 
         string s = trim(sql);
         string l = toLower(s);
@@ -115,7 +145,14 @@ public:
                 string w; iss>>w; iss>>w;
                 iss>>cmd.create->table;
             }
-            if (pL!=string::npos){ size_t pR = s.find_last_of(')'); if(pR!=string::npos && pR>pL){ string inside = s.substr(pL+1,pR-pL-1); auto parts = splitArgs(inside); for(auto &p:parts) cmd.create->columns.push_back(p);} }
+            if (pL!=string::npos){ 
+                size_t pR = s.find_last_of(')'); 
+                if(pR!=string::npos && pR>pL){ 
+                    string inside = s.substr(pL+1,pR-pL-1); 
+                    auto parts = splitArgs(inside); 
+                    for(auto &p:parts) cmd.create->columns.push_back(p);
+                } 
+            }
             return executeCreate(cmd);
         }
 
@@ -123,10 +160,25 @@ public:
             Command cmd; cmd.type = CmdType::INSERT; cmd.insert = new InsertCmd();
             size_t posValues = l.find("values");
             string header = (posValues==string::npos) ? s : s.substr(0,posValues);
-            { istringstream iss(header); string w; iss>>w; iss>>w; iss>>cmd.insert->table; }
-            if (posValues!=string::npos){ size_t pL = s.find('(', posValues); size_t pR = s.find(')', pL); if(pL!=string::npos && pR!=string::npos && pR>pL){ string inside = s.substr(pL+1,pR-pL-1); auto parts = splitArgs(inside); for(auto &p:parts) { 
-                            if(p.size()>=2 && ((p.front()=='"'&&p.back()=='"')||(p.front()=='\''&&p.back()=='\''))) cmd.insert->values.push_back(p.substr(1,p.size()-2)); else cmd.insert->values.push_back(p);
-                        } } }
+            { 
+                istringstream iss(header); 
+                string w; iss>>w; iss>>w; 
+                iss>>cmd.insert->table; 
+            }
+            if (posValues!=string::npos){ 
+                size_t pL = s.find('(', posValues); 
+                size_t pR = s.find(')', pL); 
+                if(pL!=string::npos && pR!=string::npos && pR>pL){ 
+                    string inside = s.substr(pL+1,pR-pL-1); 
+                    auto parts = splitArgs(inside); 
+                    for(auto &p:parts) { 
+                        if(p.size()>=2 && ((p.front()=='"'&&p.back()=='"')||(p.front()=='\''&&p.back()=='\''))) 
+                            cmd.insert->values.push_back(p.substr(1,p.size()-2)); 
+                        else 
+                            cmd.insert->values.push_back(p);
+                    } 
+                } 
+            }
             return executeInsert(cmd);
         }
 
@@ -134,9 +186,36 @@ public:
             Command cmd; cmd.type = CmdType::SELECT; cmd.select = new SelectCmd();
             if (l.find("count(")!=string::npos) cmd.select->countOnly = true;
             size_t posFrom = l.find(" from ");
-            if (posFrom!=string::npos){ size_t start = posFrom+6; size_t end = l.find_first_of(" \t\n;", start); if(end==string::npos) end = l.size(); cmd.select->table = trim(s.substr(start,end-start)); }
+            if (posFrom!=string::npos){ 
+                size_t start = posFrom+6; 
+                size_t end = l.find_first_of(" \t\n;", start); 
+                if(end==string::npos) end = l.size(); 
+                cmd.select->table = trim(s.substr(start,end-start)); 
+            }
             size_t posWhere = l.find(" where ");
-            if (posWhere!=string::npos){ size_t posSpatial = l.find("spatial_intersect", posWhere); if(posSpatial!=string::npos){ size_t pL = s.find('(', posSpatial); size_t pR = s.find(')', pL); if(pL!=string::npos && pR!=string::npos && pR>pL){ string inside = s.substr(pL+1,pR-pL-1); auto parts = splitArgs(inside); if(parts.size()>=5){ cmd.select->spatialColumn = parts[0]; try{ cmd.select->xmin = stod(parts[1]); cmd.select->ymin = stod(parts[2]); cmd.select->xmax = stod(parts[3]); cmd.select->ymax = stod(parts[4]); cmd.select->hasSpatial = true; }catch(...){}}}}}
+            if (posWhere!=string::npos){ 
+                size_t posSpatial = l.find("spatial_intersect", posWhere); 
+                if(posSpatial!=string::npos){ 
+                    size_t pL = s.find('(', posSpatial); 
+                    size_t pR = s.find(')', pL); 
+                    if(pL!=string::npos && pR!=string::npos && pR>pL){ 
+                        string inside = s.substr(pL+1,pR-pL-1); 
+                        auto parts = splitArgs(inside); 
+                        if(parts.size()>=5){ 
+                            cmd.select->spatialColumn = parts[0]; 
+                            try{ 
+                                cmd.select->xmin = stod(parts[1]); 
+                                cmd.select->ymin = stod(parts[2]); 
+                                cmd.select->xmax = stod(parts[3]); 
+                                cmd.select->ymax = stod(parts[4]); 
+                                cmd.select->hasSpatial = true; 
+                            } catch(...) {
+                                
+                            }
+                        }
+                    }
+                }
+            }
             return executeSelect(cmd);
         }
 
