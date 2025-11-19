@@ -20,7 +20,13 @@ private:
     bool running;
     
 public:
-    CLI() : executor(catalog, lsmTrees), running(false) {}
+    CLI() : executor(catalog, lsmTrees), running(false) {
+        vector<string> existingTables = catalog.getAllTableNames();
+        for (const string& tableName : existingTables) {
+            lsmTrees[tableName] = new lsm::LSMTree<T>(2);
+            cout << "System: Restored table '" << tableName << "'" << endl;
+        }
+    }
     
     ~CLI() {
         for (auto const& [name, tree] : lsmTrees) {

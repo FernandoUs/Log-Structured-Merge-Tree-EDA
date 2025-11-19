@@ -8,9 +8,14 @@
 #include <vector>
 #include <memory>
 #include <sstream>
+#include <fstream>
+#include <filesystem>
+#include "../json.hpp"
 
 using namespace std;
+using json = nlohmann::json;
 namespace sp = spatial;
+namespace fs = std::filesystem;
 
 namespace sql {
 
@@ -22,6 +27,7 @@ struct TableSchema {
 
     TableSchema() = default;
     TableSchema(const string& n) : name(n) {}
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(TableSchema, name, columns, types, spatialColumn)
 };
 
 enum class CmdType { CREATE, INSERT, SELECT };
@@ -60,10 +66,47 @@ struct Command {
 class CatalogManager {
 private:
     map<string, TableSchema> tables;
+    const string DATA_DIR = "data";
+    const string CATALOG_FILE = "data/catalog.json";
+    void saveToDisk() {
+        if (!fs::exists(DATA_DIR)) {
+            fs::create_directories(DATA_DIR);
+        }
+        json j = tables;        
+        ofstream file(CATALOG_FILE);
+        if (file.is_open()) {
+            file << j.dump(4);
+            file.close();
+        }
+    }
 
+    void loadFromDisk() {
+        if (!fs::exists(CATALOG_FILE)) return;
+
+        ifstream file(CATALOG_FILE);
+        if (file.is_open()) {
+            try {
+                json j;
+                file >> j;
+                tables = j.get<map<string, TableSchema>>();
+            } catch (...) {
+            }
+        }
+    }
 public:
+    CatalogManager() {
+        loadFromDisk();
+    }
+    vector<string> getAllTableNames() const {
+        vector<string> names;
+        for (const auto& pair : tables) {
+            names.push_back(pair.first);
+        }
+        return names;
+    }
     void createTable(const TableSchema& schema) {
         tables[schema.name] = schema;
+        saveToDisk();
     }
 
     bool tableExists(const string& name) const {
@@ -227,7 +270,7 @@ public:
         TableSchema schema;
         schema.name = cmd.create->table;
         for (const auto &c : cmd.create->columns) {
-            size_t colon = c.find(':');
+            size_t colon = c.find(' ');
             if (colon != string::npos) {
                 schema.columns.push_back(c.substr(0, colon));
                 schema.types.push_back(c.substr(colon + 1));
