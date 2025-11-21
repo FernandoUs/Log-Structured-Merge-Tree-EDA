@@ -19,15 +19,24 @@ namespace fs = std::filesystem;
 
 namespace sql {
 
+template<typename T>
+struct TableIndex {
+    lsm::LSMTree<T>* primary;
+    lsm::LSMTree<T>* secondary;
+    TableIndex() : primary(nullptr), secondary(nullptr) {}
+};
+
 struct TableSchema {
     string name;
     vector<string> columns;
     vector<string> types;
     string spatialColumn;
-
+    string mergePolicy = "Tiered";
+    int policyParam = 4;
+    string spatialComparator = "Simple";
     TableSchema() = default;
     TableSchema(const string& n) : name(n) {}
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE(TableSchema, name, columns, types, spatialColumn)
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(TableSchema, name, columns, types, spatialColumn, mergePolicy, policyParam,spatialComparator)
 };
 
 enum class CmdType { CREATE, INSERT, SELECT };
@@ -35,6 +44,9 @@ enum class CmdType { CREATE, INSERT, SELECT };
 struct CreateCmd {
     string table;
     vector<string> columns;
+    string policyName = "Tiered";
+    int policyParam = 4;
+    string comparatorName = "Simple";
 };
 
 struct InsertCmd {
@@ -134,12 +146,13 @@ template<typename T = int>
 class QueryExecutor {
 private:
     CatalogManager& catalog;
-    map<string, lsm::LSMTree<T>*>& lsmTrees;
-
+    map<string, TableIndex<T>>& tableIndices;
+    lsm::GlobalBudget* globalBudget;
 public:
     QueryExecutor(CatalogManager& cat,
-                 map<string, lsm::LSMTree<T>*>& trees)
-        : catalog(cat), lsmTrees(trees) {}
+                 map<string, TableIndex<T>>& indices,
+                 lsm::GlobalBudget* budget)
+        : catalog(cat), tableIndices(indices), globalBudget(budget) {}
 
     string execute(const string& sql) {
         auto toLower = [](const string &s){ 
@@ -181,20 +194,39 @@ public:
 
         if (l.rfind("create table", 0) == 0) {
             Command cmd; cmd.type = CmdType::CREATE; cmd.create = new CreateCmd();
-            size_t pL = s.find('(');
-            string header = (pL==string::npos) ? s : s.substr(0,pL);
+            size_t pL = l.find('(');
+            string header = (pL==string::npos) ? l : l.substr(0,pL);
             {
                 istringstream iss(header);
                 string w; iss>>w; iss>>w;
                 iss>>cmd.create->table;
             }
             if (pL!=string::npos){ 
-                size_t pR = s.find_last_of(')'); 
-                if(pR!=string::npos && pR>pL){ 
-                    string inside = s.substr(pL+1,pR-pL-1); 
-                    auto parts = splitArgs(inside); 
-                    for(auto &p:parts) cmd.create->columns.push_back(p);
-                } 
+                size_t pR = l.find_last_of(')'); 
+                if (pR + 1 < l.length()) {
+                        string suffix = l.substr(pR + 1);
+                        stringstream ss(suffix);
+                        string word;
+                        while (ss >> word) {
+                            string wLower = toLower(word);
+                            if (wLower == "with") {
+                                string next;
+                                if (ss >> next && toLower(next) == "policy") {
+                                    if (ss >> cmd.create->policyName) {
+                                        int val;
+                                        while (isspace(ss.peek())) ss.ignore(); 
+                                        if (isdigit(ss.peek())) {
+                                            ss >> val;
+                                            cmd.create->policyParam = val;
+                                        }
+                                    }
+                                }
+                            }
+                            if (wLower == "comparator") {
+                                ss >> cmd.create->comparatorName;
+                            }
+                        }
+                    }
             }
             return executeCreate(cmd);
         }
@@ -202,7 +234,7 @@ public:
         if (l.rfind("insert into",0)==0) {
             Command cmd; cmd.type = CmdType::INSERT; cmd.insert = new InsertCmd();
             size_t posValues = l.find("values");
-            string header = (posValues==string::npos) ? s : s.substr(0,posValues);
+            string header = (posValues==string::npos) ? l : l.substr(0,posValues);
             { 
                 istringstream iss(header); 
                 string w; iss>>w; iss>>w; 
@@ -267,8 +299,18 @@ public:
 
     string executeCreate(const Command& cmd) {
         if (!cmd.create) return "Error: Invalid CREATE command";
+
+        string tableName = cmd.create->table;
+        if (catalog.tableExists(tableName)) {
+            return "Error: Table '" + tableName + "' already exists.";
+        }
+        
         TableSchema schema;
         schema.name = cmd.create->table;
+        schema.mergePolicy = cmd.create->policyName;
+        schema.policyParam = cmd.create->policyParam;
+        schema.spatialComparator = cmd.create->comparatorName;
+
         for (const auto &c : cmd.create->columns) {
             size_t colon = c.find(' ');
             if (colon != string::npos) {
@@ -281,7 +323,33 @@ public:
             }
         }
         catalog.createTable(schema);
-        lsmTrees[schema.name] = new lsm::LSMTree<T>(2);
+        TableIndex<T> indices;
+        
+        auto* pPolicy = lsm::PolicyFactory<T>::create(schema.mergePolicy, schema.policyParam);
+        auto* sPolicy = lsm::PolicyFactory<T>::create(schema.mergePolicy, schema.policyParam);
+
+        sp::ISpatialComparator<T>* pComp;
+        sp::ISpatialComparator<T>* sComp;
+
+        sp::Point minP({-180.0, -90.0});
+        sp::Point maxP({180.0, 90.0});
+        sp::MBR worldBounds(minP, maxP);
+
+        if (schema.spatialComparator == "hilbert") {
+            sComp = new sp::HilbertComparatorAdapter<T>(worldBounds);
+        } else {
+            sComp = new sp::SimpleComparatorAdapter<T>();
+        }
+
+        pComp = new sp::SimpleComparatorAdapter<T>();
+
+        string pName = schema.name;
+        string sName = schema.name;
+
+        indices.primary = new lsm::LSMTree<T>(pName, globalBudget, pPolicy, 1024, pComp, false);
+        indices.secondary = new lsm::LSMTree<T>(sName, globalBudget, sPolicy, 24, sComp, true);
+        
+        tableIndices[schema.name] = indices;
         return "Table '" + schema.name + "' created successfully";
     }
 
@@ -289,8 +357,33 @@ public:
         if (!cmd.insert) return "Error: Invalid INSERT command";
         string tableName = cmd.insert->table;
         if (!catalog.tableExists(tableName)) return "Error: Table '" + tableName + "' does not exist";
-        if (lsmTrees.find(tableName) == lsmTrees.end()) lsmTrees[tableName] = new lsm::LSMTree<T>(2);
-        lsm::LSMTree<T>* tree = lsmTrees[tableName];
+        if (tableIndices.find(tableName) == tableIndices.end()) {
+            TableSchema savedSchema = catalog.getTable(tableName);
+            auto* pPolicy = lsm::PolicyFactory<T>::create(savedSchema.mergePolicy, savedSchema.policyParam);
+            auto* sPolicy = lsm::PolicyFactory<T>::create(savedSchema.mergePolicy, savedSchema.policyParam);
+            
+            sp::ISpatialComparator<T>* pComp = new sp::SimpleComparatorAdapter<T>();
+            sp::ISpatialComparator<T>* sComp;
+
+            if (savedSchema.spatialComparator == "Hilbert") {
+                sp::Point minP({-180.0, -90.0});
+                sp::Point maxP({180.0, 90.0});
+                sp::MBR world(minP, maxP);
+                sComp = new sp::HilbertComparatorAdapter<T>(world);
+            } else {
+                sComp = new sp::SimpleComparatorAdapter<T>();
+            }
+
+            string pName = tableName;
+            string sName = tableName;
+
+            TableIndex<T> indices;
+            indices.primary = new lsm::LSMTree<T>(pName, globalBudget, pPolicy, 1024, pComp, false); 
+            indices.secondary = new lsm::LSMTree<T>(sName, globalBudget, sPolicy, 24, sComp, true);
+            
+            tableIndices[tableName] = indices;
+        }
+        TableIndex<T>& indices = tableIndices[tableName];
         vector<double> coords;
         T payload = T();
         for (size_t i = 0; i < cmd.insert->values.size(); ++i) {
@@ -305,23 +398,96 @@ public:
         if (coords.size() >= 2) {
             sp::Point p({coords[0], coords[1]});
             if (coords.size() > 2) payload = static_cast<T>(coords[2]);
-            tree->insert(p, payload);
-            return "INSERT successful";
+            bool pSuccess = indices.primary->insert(p, payload);
+            bool sSuccess = indices.secondary->insert(p, payload);
+            if (pSuccess && sSuccess) {
+                const auto& metrics = indices.secondary->getMetrics();
+                stringstream ss;
+                ss << "INSERT successful (P & S)";
+                ss << "\n[W-METRICS] WA: " << metrics.writeAmplification;
+                ss << " | Total Writes: " << metrics.totalWrites;
+                return ss.str();
+            } else {
+                return "Error: Insert failed (Budget exceeded or Memory Error)";
+            }
         }
         return "Error: Invalid INSERT values";
+    }
+
+    string executeClean(const string& tableNameRaw) {
+        string tableName = tableNameRaw;
+        tableName.erase(0, tableName.find_first_not_of(" \t\n\r"));
+        tableName.erase(tableName.find_last_not_of(" \t\n\r") + 1);
+        if (!catalog.tableExists(tableName)) {
+            return "Error: Table '" + tableName + "' does not exist.";
+        }
+
+        auto it = tableIndices.find(tableName);
+        if (it != tableIndices.end()) {
+            delete it->second.primary;
+            delete it->second.secondary;
+            tableIndices.erase(it);
+        }
+
+        string tableDir = "data/" + tableName;
+        try {
+            if (fs::exists(tableDir)) {
+                uintmax_t n = fs::remove_all(tableDir); 
+                cout << "[CLEAN] Deleted " << n << " files/directories." << endl;
+            }
+            fs::create_directories(tableDir);
+        } catch (const fs::filesystem_error& e) {
+            return "Error deleting files: " + string(e.what());
+        }
+
+        TableSchema schema = catalog.getTable(tableName);
+        
+        auto* pPolicy = lsm::PolicyFactory<T>::create(schema.mergePolicy, schema.policyParam);
+        auto* sPolicy = lsm::PolicyFactory<T>::create(schema.mergePolicy, schema.policyParam);
+        
+        sp::ISpatialComparator<T>* pComp = new sp::SimpleComparatorAdapter<T>();
+        sp::ISpatialComparator<T>* sComp;
+
+        if (schema.spatialComparator == "Hilbert") {
+            sp::Point minP({-180.0, -90.0});
+            sp::Point maxP({180.0, 90.0});
+            sp::MBR world(minP, maxP);
+            sComp = new sp::HilbertComparatorAdapter<T>(world);
+        } else {
+            sComp = new sp::SimpleComparatorAdapter<T>();
+        }
+
+        string pName = tableName;
+        string sName = tableName;
+        
+        TableIndex<T> newIndices;
+        newIndices.primary = new lsm::LSMTree<T>(pName, globalBudget, pPolicy, 1024, pComp, false);
+        newIndices.secondary = new lsm::LSMTree<T>(sName, globalBudget, sPolicy, 24, sComp,true);
+        
+
+
+        tableIndices[tableName] = newIndices;
+
+        return "Table '" + tableName + "' cleaned successfully (Data and Metrics reset).";
     }
 
     string executeSelect(const Command& cmd) {
         if (!cmd.select) return "Error: Invalid SELECT command";
         string tableName = cmd.select->table;
         if (!catalog.tableExists(tableName)) return "Error: Table '" + tableName + "' does not exist";
-        auto it = lsmTrees.find(tableName);
-        if (it == lsmTrees.end()) return "Error: LSM-tree not found for table '" + tableName + "'";
-        lsm::LSMTree<T>* tree = it->second;
+        auto it = tableIndices.find(tableName);
+        if (it == tableIndices.end()) return "Error: LSM-tree not found for table '" + tableName + "'";
+        lsm::LSMTree<T>* tree = it->second.secondary;
+
+        uint64_t initialRA = tree->getMetrics().readAmplification;
+
         vector<sp::SpatialRecord<T>> results;
+        auto start_time = chrono::high_resolution_clock::now();
+
         if (cmd.select->hasSpatial) {
             sp::MBR box(sp::Point({cmd.select->xmin, cmd.select->ymin}), sp::Point({cmd.select->xmax, cmd.select->ymax}));
             results = tree->spatialRangeQuery(box);
+
         } else {
             sp::MBR full(2);
             sp::Point lo({-1e9, -1e9});
@@ -329,16 +495,30 @@ public:
             full.setLower(lo); full.setUpper(hi);
             results = tree->spatialRangeQuery(full);
         }
-        if (cmd.select->countOnly) return string("COUNT(*): ") + to_string(results.size());
-        stringstream ss; ss << "Results (" << results.size() << " rows):\n";
-        for (const auto &r : results) {
-            ss << "Point: (";
-            for (size_t i = 0; i < r.point.dimensions(); ++i) {
-                if (i) ss << ", ";
-                ss << r.point[i];
+
+        auto end_time = chrono::high_resolution_clock::now();
+        double latencyMs = chrono::duration<double, milli>(end_time - start_time).count();
+        uint64_t finalRA = tree->getMetrics().readAmplification;
+        uint64_t queryRA = finalRA - initialRA;
+
+        const auto& metrics = tree->getMetrics();
+        stringstream ss; 
+        if (cmd.select->countOnly) {
+            ss << "COUNT(*): " << results.size();
+        } else {
+            ss << "Results (" << results.size() << " rows):\n";
+            for (const auto &r : results) {
+                ss << "Point: (";
+                for (size_t i = 0; i < r.point.dimensions(); ++i) {
+                    if (i) ss << ", ";
+                    ss << r.point[i];
+                }
+                ss << ")\n";
             }
-            ss << ")\n";
         }
+        
+        ss << "\n[R-METRICS] RA: " << queryRA;
+        ss << " | Latency: " << fixed << setprecision(2) << latencyMs << " ms";
         return ss.str();
     }
 };

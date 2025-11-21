@@ -14,7 +14,7 @@ private:
 public:
     MBR() : lower(), upper() {}
 
-    explicit MBR(size_t dimensions)
+    MBR(size_t dimensions)
         : lower(dimensions), upper(dimensions) {
         for (size_t i = 0; i < dimensions; ++i) {
             lower[i] = numeric_limits<double>::max();
@@ -40,32 +40,73 @@ public:
     void setUpper(const Point& p) { upper = p; }
 
     bool contains(const Point& point) const {
-        return false;
+        if (point.dimensions() != dimensions()) return false;
+        for (size_t i = 0; i < dimensions(); ++i) {
+            double v = point[i];
+            if (v < lower[i] || v > upper[i]) return false;
+        }
+        return true;
     }
     
     bool intersects(const MBR& other) const {
-        return false;
+        if (other.dimensions() != dimensions()) return false;
+        for (size_t i = 0; i < dimensions(); ++i) {
+            if (upper[i] < other.lower[i] || lower[i] > other.upper[i]) return false;
+        }
+        return true;
     }
     
     void expand(const Point& point) {
+        if (point.dimensions() != dimensions()) return;
+        for (size_t i = 0; i < dimensions(); ++i) {
+            lower[i] = min(lower[i], point[i]);
+            upper[i] = max(upper[i], point[i]);
+        }
     }
-    
     void expand(const MBR& other) {
+        if (other.dimensions() != dimensions()) return;
+        for (size_t i = 0; i < dimensions(); ++i) {
+            lower[i] = min(lower[i], other.lower[i]);
+            upper[i] = max(upper[i], other.upper[i]);
+        }
     }
-    
     double area() const {
-        return 0.0;
+        if (!isValid()) return 0.0;
+        double a = 1.0;
+        for (size_t i = 0; i < dimensions(); ++i) {
+            double d = upper[i] - lower[i];
+            if (d <= 0) return 0.0;
+            a *= d;
+        }
+        return a;
     }
     
     double perimeter() const {
-        return 0.0;
+        if (!isValid()) return 0.0;
+        double sum = 0.0;
+        for (size_t i = 0; i < dimensions(); ++i) {
+            double d = upper[i] - lower[i];
+            if (d < 0) d = 0;
+            sum += d;
+        }
+        return 2.0 * sum;
     }
 
     Point center() const {
-        return Point();
+        if (!isValid()) return Point();
+        Point c(dimensions());
+        for (size_t i = 0; i < dimensions(); ++i) {
+            c[i] = (lower[i] + upper[i]) / 2.0;
+        }
+        return c;
     }
     
     bool isValid() const {
+        if (dimensions() == 0) return false;
+        for (size_t i = 0; i < dimensions(); ++i) {
+            if (lower[i] > upper[i]) return false;
+            if (lower[i] == numeric_limits<double>::max() && upper[i] == numeric_limits<double>::lowest()) return false;
+        }
         return true;
     }
 };

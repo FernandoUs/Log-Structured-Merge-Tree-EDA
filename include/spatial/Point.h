@@ -14,7 +14,7 @@ private:
 
 public:
     Point() : coords() {}
-    explicit Point(size_t dimensions) : coords(dimensions, 0.0) {}
+    Point(size_t dimensions) : coords(dimensions, 0.0) {}
     Point(const vector<double>& coordinates) : coords(coordinates) {}
     Point(initializer_list<double> coordinates) : coords(coordinates) {}
 
