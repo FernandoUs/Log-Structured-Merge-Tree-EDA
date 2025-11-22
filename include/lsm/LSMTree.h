@@ -474,7 +474,7 @@ namespace lsm
             auto records = memTable.getAllRecords();
             size_t bytesFreed = memTable.sizeInBytes();
 
-            LSMComponent<T> *newComponent = new LSMComponent<T>(0, dimensions);
+            LSMComponent<T>* newComponent = new LSMComponent<T>(0, dimensions, 1);
             newComponent->build(records);
 
             string tableDir = "data/" + tableName;
@@ -497,6 +497,10 @@ namespace lsm
             diskComponents.insert(diskComponents.begin(), newComponent);
             memTable.clear();
             globalBudget->releaseSpace(bytesFreed);
+            
+            if (auto* binomialPolicy = dynamic_cast<BinomialMergePolicy<T>*>(mergePolicy)) {
+                binomialPolicy->notifyFlush();
+            }
             checkAndMerge();
         }
 
