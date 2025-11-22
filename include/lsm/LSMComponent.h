@@ -173,6 +173,8 @@ public:
 
     uint64_t getTimestamp() const { return timestamp; }
 
+    size_t getRecordCount() const { return this->recordCount; }
+    
     size_t size() const { return recordCount; }
 
     const string& getFilename() const { return filename; }

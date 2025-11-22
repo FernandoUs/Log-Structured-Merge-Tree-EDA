@@ -362,27 +362,69 @@ namespace lsm
         }
     };
 
-    template <typename T>
-    class ConcurrentMergePolicy : public MergePolicy<T>
-    {
+    template<typename T>
+    class ConcurrentMergePolicy : public MergePolicy<T> {
     private:
-        size_t minComponents;
+        size_t k;      // Max total components
+        size_t C;      // Min merge length
+        size_t D;      // Max merge length
+        double lambda; // Size ratio
 
-    public:
-        explicit ConcurrentMergePolicy(size_t minComps = 2) : minComponents(minComps) {}
-
-        bool shouldMerge(const vector<LSMComponent<T> *> &components) const override
-        {
-            return false;
+        double getComponentSize(const LSMComponent<T>* comp) const {
+            return static_cast<double>(comp->getRecordCount());
         }
 
-        vector<LSMComponent<T> *> selectComponentsToMerge(
-            const vector<LSMComponent<T> *> &components) const override
-        {
+    public:
+        explicit ConcurrentMergePolicy(size_t maxComps = 30, size_t minLen = 3,
+                                    size_t maxLen = 10, double ratio = 1.2)
+            : k(maxComps), C(minLen), D(maxLen), lambda(ratio) {}
+
+        bool shouldMerge(const vector<LSMComponent<T>*>& components) const override {
+            if (components.size() > k) return true;
+
+            return !selectComponentsToMerge(components).empty();
+        }
+
+        vector<LSMComponent<T>*> selectComponentsToMerge(
+            const vector<LSMComponent<T>*>& components) const override {
+
+            size_t numComponents = components.size();
+            if (numComponents < C) return {};
+
+            if (numComponents > k) {
+                size_t mergeCount = min(numComponents, D);
+                vector<LSMComponent<T>*> forcedMerge;
+                // Asumiendo que components[0] es el más nuevo
+                for(size_t i = 0; i < mergeCount; ++i) {
+                    forcedMerge.push_back(components[i]);
+                }
+                return forcedMerge;
+            }
+
+            size_t maxPossibleLen = min(numComponents, D);
+
+            for (size_t len = maxPossibleLen; len >= C; --len) {
+                LSMComponent<T>* oldestInBatch = components[len - 1];
+                double sizeOldest = getComponentSize(oldestInBatch);
+
+                double sumNewer = 0.0;
+                for (size_t j = 0; j < len - 1; ++j) {
+                    sumNewer += getComponentSize(components[j]);
+                }
+
+                if (sizeOldest <= lambda * sumNewer) {
+                    vector<LSMComponent<T>*> selection;
+                    selection.reserve(len);
+                    for (size_t i = 0; i < len; ++i) {
+                        selection.push_back(components[i]);
+                    }
+                    return selection;
+                }
+            }
+
             return {};
         }
     };
-
     template <typename T>
     class LeveledMergePolicy : public MergePolicy<T>
     {
