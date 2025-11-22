@@ -8,6 +8,7 @@
 #include <vector>
 #include <memory>
 #include <sstream>
+#include <iostream>
 #include <fstream>
 #include <filesystem>
 #include "../json.hpp"
@@ -84,7 +85,7 @@ private:
         if (!fs::exists(DATA_DIR)) {
             fs::create_directories(DATA_DIR);
         }
-        json j = tables;        
+        json j = tables;
         ofstream file(CATALOG_FILE);
         if (file.is_open()) {
             file << j.dump(4);
@@ -155,38 +156,38 @@ public:
         : catalog(cat), tableIndices(indices), globalBudget(budget) {}
 
     string execute(const string& sql) {
-        auto toLower = [](const string &s){ 
-            string o=s; 
-            for(char &c:o) c=static_cast<char>(tolower((unsigned char)c)); 
-            return o; 
+        auto toLower = [](const string &s){
+            string o=s;
+            for(char &c:o) c=static_cast<char>(tolower((unsigned char)c));
+            return o;
         };
-        
-        auto trim = [](const string &s){ 
-            size_t a = s.find_first_not_of(" \t\n\r"); 
-            if(a==string::npos) return string(); 
-            size_t b = s.find_last_not_of(" \t\n\r"); 
-            return s.substr(a,b-a+1); 
+
+        auto trim = [](const string &s){
+            size_t a = s.find_first_not_of(" \t\n\r");
+            if(a==string::npos) return string();
+            size_t b = s.find_last_not_of(" \t\n\r");
+            return s.substr(a,b-a+1);
         };
-        
-        auto splitArgs = [&](const string &s){ 
-            vector<string> out; 
-            string cur; 
-            for(char c: s){ 
-                if(c==','){ 
-                    size_t a = cur.find_first_not_of(" \t\n\r"); 
-                    size_t b = cur.find_last_not_of(" \t\n\r"); 
-                    if(a==string::npos) out.push_back(string()); 
-                    else out.push_back(cur.substr(a,b-a+1)); 
-                    cur.clear(); 
+
+        auto splitArgs = [&](const string &s){
+            vector<string> out;
+            string cur;
+            for(char c: s){
+                if(c==','){
+                    size_t a = cur.find_first_not_of(" \t\n\r");
+                    size_t b = cur.find_last_not_of(" \t\n\r");
+                    if(a==string::npos) out.push_back(string());
+                    else out.push_back(cur.substr(a,b-a+1));
+                    cur.clear();
                 } else cur.push_back(c);
-            } 
-            if(!cur.empty()){ 
-                size_t a = cur.find_first_not_of(" \t\n\r"); 
-                size_t b = cur.find_last_not_of(" \t\n\r"); 
-                if(a==string::npos) out.push_back(string()); 
-                else out.push_back(cur.substr(a,b-a+1)); 
-            } 
-            return out; 
+            }
+            if(!cur.empty()){
+                size_t a = cur.find_first_not_of(" \t\n\r");
+                size_t b = cur.find_last_not_of(" \t\n\r");
+                if(a==string::npos) out.push_back(string());
+                else out.push_back(cur.substr(a,b-a+1));
+            }
+            return out;
         };
 
         string s = trim(sql);
@@ -201,8 +202,8 @@ public:
                 string w; iss>>w; iss>>w;
                 iss>>cmd.create->table;
             }
-            if (pL!=string::npos){ 
-                size_t pR = l.find_last_of(')'); 
+            if (pL!=string::npos){
+                size_t pR = l.find_last_of(')');
                 if (pR + 1 < l.length()) {
                         string suffix = l.substr(pR + 1);
                         stringstream ss(suffix);
@@ -214,7 +215,7 @@ public:
                                 if (ss >> next && toLower(next) == "policy") {
                                     if (ss >> cmd.create->policyName) {
                                         int val;
-                                        while (isspace(ss.peek())) ss.ignore(); 
+                                        while (isspace(ss.peek())) ss.ignore();
                                         if (isdigit(ss.peek())) {
                                             ss >> val;
                                             cmd.create->policyParam = val;
@@ -235,24 +236,24 @@ public:
             Command cmd; cmd.type = CmdType::INSERT; cmd.insert = new InsertCmd();
             size_t posValues = l.find("values");
             string header = (posValues==string::npos) ? l : l.substr(0,posValues);
-            { 
-                istringstream iss(header); 
-                string w; iss>>w; iss>>w; 
-                iss>>cmd.insert->table; 
+            {
+                istringstream iss(header);
+                string w; iss>>w; iss>>w;
+                iss>>cmd.insert->table;
             }
-            if (posValues!=string::npos){ 
-                size_t pL = s.find('(', posValues); 
-                size_t pR = s.find(')', pL); 
-                if(pL!=string::npos && pR!=string::npos && pR>pL){ 
-                    string inside = s.substr(pL+1,pR-pL-1); 
-                    auto parts = splitArgs(inside); 
-                    for(auto &p:parts) { 
-                        if(p.size()>=2 && ((p.front()=='"'&&p.back()=='"')||(p.front()=='\''&&p.back()=='\''))) 
-                            cmd.insert->values.push_back(p.substr(1,p.size()-2)); 
-                        else 
+            if (posValues!=string::npos){
+                size_t pL = s.find('(', posValues);
+                size_t pR = s.find(')', pL);
+                if(pL!=string::npos && pR!=string::npos && pR>pL){
+                    string inside = s.substr(pL+1,pR-pL-1);
+                    auto parts = splitArgs(inside);
+                    for(auto &p:parts) {
+                        if(p.size()>=2 && ((p.front()=='"'&&p.back()=='"')||(p.front()=='\''&&p.back()=='\'')))
+                            cmd.insert->values.push_back(p.substr(1,p.size()-2));
+                        else
                             cmd.insert->values.push_back(p);
-                    } 
-                } 
+                    }
+                }
             }
             return executeInsert(cmd);
         }
@@ -261,31 +262,31 @@ public:
             Command cmd; cmd.type = CmdType::SELECT; cmd.select = new SelectCmd();
             if (l.find("count(")!=string::npos) cmd.select->countOnly = true;
             size_t posFrom = l.find(" from ");
-            if (posFrom!=string::npos){ 
-                size_t start = posFrom+6; 
-                size_t end = l.find_first_of(" \t\n;", start); 
-                if(end==string::npos) end = l.size(); 
-                cmd.select->table = trim(s.substr(start,end-start)); 
+            if (posFrom!=string::npos){
+                size_t start = posFrom+6;
+                size_t end = l.find_first_of(" \t\n;", start);
+                if(end==string::npos) end = l.size();
+                cmd.select->table = trim(s.substr(start,end-start));
             }
             size_t posWhere = l.find(" where ");
-            if (posWhere!=string::npos){ 
-                size_t posSpatial = l.find("spatial_intersect", posWhere); 
-                if(posSpatial!=string::npos){ 
-                    size_t pL = s.find('(', posSpatial); 
-                    size_t pR = s.find(')', pL); 
-                    if(pL!=string::npos && pR!=string::npos && pR>pL){ 
-                        string inside = s.substr(pL+1,pR-pL-1); 
-                        auto parts = splitArgs(inside); 
-                        if(parts.size()>=5){ 
-                            cmd.select->spatialColumn = parts[0]; 
-                            try{ 
-                                cmd.select->xmin = stod(parts[1]); 
-                                cmd.select->ymin = stod(parts[2]); 
-                                cmd.select->xmax = stod(parts[3]); 
-                                cmd.select->ymax = stod(parts[4]); 
-                                cmd.select->hasSpatial = true; 
+            if (posWhere!=string::npos){
+                size_t posSpatial = l.find("spatial_intersect", posWhere);
+                if(posSpatial!=string::npos){
+                    size_t pL = s.find('(', posSpatial);
+                    size_t pR = s.find(')', pL);
+                    if(pL!=string::npos && pR!=string::npos && pR>pL){
+                        string inside = s.substr(pL+1,pR-pL-1);
+                        auto parts = splitArgs(inside);
+                        if(parts.size()>=5){
+                            cmd.select->spatialColumn = parts[0];
+                            try{
+                                cmd.select->xmin = stod(parts[1]);
+                                cmd.select->ymin = stod(parts[2]);
+                                cmd.select->xmax = stod(parts[3]);
+                                cmd.select->ymax = stod(parts[4]);
+                                cmd.select->hasSpatial = true;
                             } catch(...) {
-                                
+
                             }
                         }
                     }
@@ -304,7 +305,7 @@ public:
         if (catalog.tableExists(tableName)) {
             return "Error: Table '" + tableName + "' already exists.";
         }
-        
+
         TableSchema schema;
         schema.name = cmd.create->table;
         schema.mergePolicy = cmd.create->policyName;
@@ -324,7 +325,7 @@ public:
         }
         catalog.createTable(schema);
         TableIndex<T> indices;
-        
+
         auto* pPolicy = lsm::PolicyFactory<T>::create(schema.mergePolicy, schema.policyParam);
         auto* sPolicy = lsm::PolicyFactory<T>::create(schema.mergePolicy, schema.policyParam);
 
@@ -348,7 +349,7 @@ public:
 
         indices.primary = new lsm::LSMTree<T>(pName, globalBudget, pPolicy, 1024, pComp, false);
         indices.secondary = new lsm::LSMTree<T>(sName, globalBudget, sPolicy, 24, sComp, true);
-        
+
         tableIndices[schema.name] = indices;
         return "Table '" + schema.name + "' created successfully";
     }
@@ -361,7 +362,7 @@ public:
             TableSchema savedSchema = catalog.getTable(tableName);
             auto* pPolicy = lsm::PolicyFactory<T>::create(savedSchema.mergePolicy, savedSchema.policyParam);
             auto* sPolicy = lsm::PolicyFactory<T>::create(savedSchema.mergePolicy, savedSchema.policyParam);
-            
+
             sp::ISpatialComparator<T>* pComp = new sp::SimpleComparatorAdapter<T>();
             sp::ISpatialComparator<T>* sComp;
 
@@ -378,9 +379,9 @@ public:
             string sName = tableName;
 
             TableIndex<T> indices;
-            indices.primary = new lsm::LSMTree<T>(pName, globalBudget, pPolicy, 1024, pComp, false); 
+            indices.primary = new lsm::LSMTree<T>(pName, globalBudget, pPolicy, 1024, pComp, false);
             indices.secondary = new lsm::LSMTree<T>(sName, globalBudget, sPolicy, 24, sComp, true);
-            
+
             tableIndices[tableName] = indices;
         }
         TableIndex<T>& indices = tableIndices[tableName];
@@ -432,7 +433,7 @@ public:
         string tableDir = "data/" + tableName;
         try {
             if (fs::exists(tableDir)) {
-                uintmax_t n = fs::remove_all(tableDir); 
+                uintmax_t n = fs::remove_all(tableDir);
                 cout << "[CLEAN] Deleted " << n << " files/directories." << endl;
             }
             fs::create_directories(tableDir);
@@ -441,10 +442,10 @@ public:
         }
 
         TableSchema schema = catalog.getTable(tableName);
-        
+
         auto* pPolicy = lsm::PolicyFactory<T>::create(schema.mergePolicy, schema.policyParam);
         auto* sPolicy = lsm::PolicyFactory<T>::create(schema.mergePolicy, schema.policyParam);
-        
+
         sp::ISpatialComparator<T>* pComp = new sp::SimpleComparatorAdapter<T>();
         sp::ISpatialComparator<T>* sComp;
 
@@ -459,11 +460,11 @@ public:
 
         string pName = tableName;
         string sName = tableName;
-        
+
         TableIndex<T> newIndices;
         newIndices.primary = new lsm::LSMTree<T>(pName, globalBudget, pPolicy, 1024, pComp, false);
         newIndices.secondary = new lsm::LSMTree<T>(sName, globalBudget, sPolicy, 24, sComp,true);
-        
+
 
 
         tableIndices[tableName] = newIndices;
@@ -502,7 +503,7 @@ public:
         uint64_t queryRA = finalRA - initialRA;
 
         const auto& metrics = tree->getMetrics();
-        stringstream ss; 
+        stringstream ss;
         if (cmd.select->countOnly) {
             ss << "COUNT(*): " << results.size();
         } else {
@@ -516,7 +517,7 @@ public:
                 ss << ")\n";
             }
         }
-        
+
         ss << "\n[R-METRICS] RA: " << queryRA;
         ss << " | Latency: " << fixed << setprecision(2) << latencyMs << " ms";
         return ss.str();

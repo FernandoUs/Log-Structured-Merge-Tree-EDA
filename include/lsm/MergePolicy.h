@@ -8,10 +8,11 @@
 #include <algorithm>
 #include <map>
 #include <string>
+#include <iostream>
 using namespace std;
 
 namespace lsm {
-    
+
 namespace sp = spatial;
 template<typename T>
 struct MergeEntry {
@@ -45,7 +46,7 @@ public:
         const string& directory,
         sp::ISpatialComparator<T>* comp
     ) const {
-        
+
         if (components.empty()) return nullptr;
         MergeComparator<T> pqComp = { comp };
         priority_queue<MergeEntry<T>, vector<MergeEntry<T>>, MergeComparator<T>> pq(pqComp);
@@ -72,7 +73,7 @@ public:
         }
 
         vector<sp::SpatialRecord<T>> mergedRecords;
-        
+
         while (!pq.empty()) {
             MergeEntry<T> top = pq.top();
             pq.pop();
@@ -80,10 +81,10 @@ public:
             if (!mergedRecords.empty()) {
                 sp::SpatialRecord<T>& last = mergedRecords.back();
                 if (last.point == top.record.point) {
-                    isDuplicate = true; 
+                    isDuplicate = true;
                 }
             }
-            
+
             if (!isDuplicate) {
                 mergedRecords.push_back(top.record);
             }
@@ -152,7 +153,7 @@ public:
             componentsByLevel[comp->getLevel()].push_back(comp);
         }
         for (auto& [level, levelComps] : componentsByLevel) {
-            if (levelComps.size() >= B) {   
+            if (levelComps.size() >= B) {
                 vector<LSMComponent<T>*> selection;
                 size_t start = levelComps.size() - B;
                 for (size_t i = start; i < levelComps.size(); ++i) {
@@ -169,17 +170,63 @@ public:
 template<typename T>
 class ConcurrentMergePolicy : public MergePolicy<T> {
 private:
-    size_t minComponents;
+    size_t k;      // Max total components
+    size_t C;      // Min merge length
+    size_t D;      // Max merge length
+    double lambda; // Size ratio
+
+    double getComponentSize(const LSMComponent<T>* comp) const {
+        return static_cast<double>(comp->getRecordCount());
+    }
 
 public:
-    explicit ConcurrentMergePolicy(size_t minComps = 2) : minComponents(minComps) {}
+    explicit ConcurrentMergePolicy(size_t maxComps = 30, size_t minLen = 3,
+                                 size_t maxLen = 10, double ratio = 1.2)
+        : k(maxComps), C(minLen), D(maxLen), lambda(ratio) {}
 
     bool shouldMerge(const vector<LSMComponent<T>*>& components) const override {
-        return false;
+        if (components.size() > k) return true;
+
+        return !selectComponentsToMerge(components).empty();
     }
 
     vector<LSMComponent<T>*> selectComponentsToMerge(
         const vector<LSMComponent<T>*>& components) const override {
+
+        size_t numComponents = components.size();
+        if (numComponents < C) return {};
+
+        if (numComponents > k) {
+            size_t mergeCount = min(numComponents, D);
+            vector<LSMComponent<T>*> forcedMerge;
+            // Asumiendo que components[0] es el más nuevo
+            for(size_t i = 0; i < mergeCount; ++i) {
+                forcedMerge.push_back(components[i]);
+            }
+            return forcedMerge;
+        }
+
+        size_t maxPossibleLen = min(numComponents, D);
+
+        for (size_t len = maxPossibleLen; len >= C; --len) {
+            LSMComponent<T>* oldestInBatch = components[len - 1];
+            double sizeOldest = getComponentSize(oldestInBatch);
+
+            double sumNewer = 0.0;
+            for (size_t j = 0; j < len - 1; ++j) {
+                sumNewer += getComponentSize(components[j]);
+            }
+
+            if (sizeOldest <= lambda * sumNewer) {
+                vector<LSMComponent<T>*> selection;
+                selection.reserve(len);
+                for (size_t i = 0; i < len; ++i) {
+                    selection.push_back(components[i]);
+                }
+                return selection;
+            }
+        }
+
         return {};
     }
 };
@@ -216,13 +263,13 @@ public:
         transform(n.begin(), n.end(), n.begin(), [](unsigned char c){ return std::tolower(c); });
         if (n == "binomial") {
             return new BinomialMergePolicy<T>(param);
-        } 
+        }
         else if (n == "tiered") {
             return new TieredMergePolicy<T>(param);
-        } 
+        }
         else if (n == "leveled") {
-            return new LeveledMergePolicy<T>(param, 1000); 
-        } 
+            return new LeveledMergePolicy<T>(param, 1000);
+        }
         else if (n == "concurrent") {
             return new ConcurrentMergePolicy<T>(param);
         }

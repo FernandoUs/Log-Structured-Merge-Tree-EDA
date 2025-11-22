@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 #include <fstream>
+#include <iostream>
 #include <chrono>
 using namespace std;
 namespace sp = spatial;
@@ -34,7 +35,7 @@ public:
         filename = "component_L" + to_string(level) + "_" + to_string(timestamp) + ".dat";
     }
 
-    LSMComponent(string fname, size_t dims = 2) 
+    LSMComponent(string fname, size_t dims = 2)
         : totalMBR(dims), level(0), timestamp(0), filename(fname), recordCount(0) {
         rtree = new sp::RTree<T>(dims);
     }
@@ -42,7 +43,7 @@ public:
     ~LSMComponent() {
         delete rtree;
     }
-    
+
     void build(const vector<sp::SpatialRecord<T>>& records) {
         recordCount = records.size();
         if (records.empty()) return;
@@ -73,7 +74,7 @@ public:
         file.write(reinterpret_cast<const char*>(&level), sizeof(level));
         file.write(reinterpret_cast<const char*>(&timestamp), sizeof(timestamp));
         file.write(reinterpret_cast<const char*>(&recordCount), sizeof(recordCount));
-        
+
         size_t dims = totalMBR.getLower().dimensions();
         for(size_t i=0; i<dims; ++i) {
             double minVal = totalMBR.getLower()[i];
@@ -108,13 +109,13 @@ public:
 
         size_t dims = totalMBR.getLower().dimensions();
         vector<double> minCoords(dims), maxCoords(dims);
-        
+
         for(size_t i=0; i<dims; ++i) {
             file.read(reinterpret_cast<char*>(&minCoords[i]), sizeof(double));
             file.read(reinterpret_cast<char*>(&maxCoords[i]), sizeof(double));
         }
         totalMBR = sp::MBR(sp::Point(minCoords), sp::Point(maxCoords));
-    
+
         vector<sp::SpatialRecord<T>> records;
         records.reserve(recordCount);
         for (size_t i = 0; i < recordCount; ++i) {
@@ -166,6 +167,8 @@ public:
     size_t getLevel() const { return level; }
 
     uint64_t getTimestamp() const { return timestamp; }
+
+    size_t getRecordCount() const { return this->recordCount; }
 
     size_t size() const { return recordCount; }
 
