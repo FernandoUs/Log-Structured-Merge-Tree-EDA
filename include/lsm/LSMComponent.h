@@ -9,6 +9,7 @@
 #include <string>
 #include <fstream>
 #include <chrono>
+#include <atomic>
 using namespace std;
 namespace sp = spatial;
 
@@ -24,7 +25,7 @@ private:
     string filename;
     size_t recordCount;
     size_t weight;  // Peso para política Binomial (número de flushes fusionados)
-
+    static std::atomic<uint64_t> globalIdCounter;
 public:
     LSMComponent(size_t lvl = 0, size_t dims = 2, size_t w = 1)
         : rtree(new sp::RTree<T>(dims)), totalMBR(dims), level(lvl),
@@ -32,7 +33,8 @@ public:
         auto now = chrono::system_clock::now();
         auto duration = now.time_since_epoch();
         timestamp = chrono::duration_cast<chrono::milliseconds>(duration).count();
-        filename = "component_L" + to_string(level) + "_" + to_string(timestamp) + ".dat";
+        uint64_t uniqueID = globalIdCounter.fetch_add(1);
+        filename = "component_L" + to_string(level) + "_" + to_string(timestamp) + to_string(uniqueID) + ".dat";
     }
 
     LSMComponent(string fname, size_t dims = 2) 
@@ -178,6 +180,8 @@ public:
     size_t getWeight() const { return weight; }
     
     void setWeight(size_t w) { weight = w; }
-};
 
+};
+    template<typename T>
+    std::atomic<uint64_t> LSMComponent<T>::globalIdCounter(0);
 }
