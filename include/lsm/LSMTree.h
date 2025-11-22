@@ -351,7 +351,8 @@ public:
         auto records = memTable.getAllRecords();
         size_t bytesFreed = memTable.sizeInBytes();
 
-        LSMComponent<T>* newComponent = new LSMComponent<T>(0, dimensions);
+        // Crear componente con peso inicial = 1 (representa 1 flush)
+        LSMComponent<T>* newComponent = new LSMComponent<T>(0, dimensions, 1);
         newComponent->build(records);
 
         string tableDir = "data/" + tableName;
@@ -370,6 +371,12 @@ public:
         diskComponents.insert(diskComponents.begin(), newComponent);
         memTable.clear();
         globalBudget->releaseSpace(bytesFreed);
+        
+        // Notificar a la política Binomial sobre el flush (offline scheduling)
+        if (auto* binomialPolicy = dynamic_cast<BinomialMergePolicy<T>*>(mergePolicy)) {
+            binomialPolicy->notifyFlush();
+        }
+        
         checkAndMerge();
     }
 

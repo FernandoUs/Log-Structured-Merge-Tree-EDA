@@ -100,7 +100,12 @@ public:
             }
         }
 
-        LSMComponent<T>* newComp = new LSMComponent<T>(targetLevel, dimensions);
+        size_t totalWeight = 0;
+        for (const auto* comp : components) {
+            totalWeight += comp->getWeight();
+        }
+
+        LSMComponent<T>* newComp = new LSMComponent<T>(targetLevel, dimensions, totalWeight);
         newComp->build(mergedRecords);
         newComp->saveToDisk(directory);
         return newComp;
@@ -111,18 +116,102 @@ template<typename T>
 class BinomialMergePolicy : public MergePolicy<T> {
 private:
     size_t k;
+    mutable size_t flushCount;
+
+    size_t computeDepth(size_t weight) const {
+        if (weight == 0) return 0;
+        size_t depth = 0;
+        size_t temp = weight;
+        while (temp > 0) {
+            temp >>= 1;
+            depth++;
+        }
+        return depth;
+    }
+
+    bool violatesBSTProperty(const vector<LSMComponent<T>*>& stack) const {
+        if (stack.empty()) return false;
+
+        if (stack.size() > k) return true;
+
+        for (size_t i = 0; i < stack.size() - 1; ++i) {
+            if (stack[i]->getWeight() == stack[i+1]->getWeight()) {
+                return true;
+            }
+        }
+
+        if (!stack.empty()) {
+            size_t depth = computeDepth(stack[0]->getWeight());
+            if (depth > k) return true;
+        }
+
+        return false;
+    }
 
 public:
-    explicit BinomialMergePolicy(size_t ratio = 4) : k(ratio) {}
+    explicit BinomialMergePolicy(size_t maxDepth = 4) 
+        : k(maxDepth), flushCount(0) {}
 
     bool shouldMerge(const vector<LSMComponent<T>*>& components) const override {
-        return false;
+        if (components.empty()) return false;
+
+        vector<LSMComponent<T>*> stack = components;
+        sort(stack.begin(), stack.end(), 
+             [](const LSMComponent<T>* a, const LSMComponent<T>* b) {
+                 return a->getTimestamp() > b->getTimestamp();
+             });
+
+        return violatesBSTProperty(stack);
     }
 
     vector<LSMComponent<T>*> selectComponentsToMerge(
         const vector<LSMComponent<T>*>& components) const override {
-        return {};
+        
+        if (components.size() < 2) return {};
+
+        vector<LSMComponent<T>*> stack = components;
+        sort(stack.begin(), stack.end(), 
+             [](const LSMComponent<T>* a, const LSMComponent<T>* b) {
+                 return a->getTimestamp() > b->getTimestamp();
+             });
+
+        vector<LSMComponent<T>*> toMerge;
+
+        for (size_t i = 0; i < stack.size() - 1; ++i) {
+            size_t w1 = stack[i]->getWeight();
+            size_t w2 = stack[i+1]->getWeight();
+
+            if (w1 == w2) {
+                toMerge.push_back(stack[i]);
+                toMerge.push_back(stack[i+1]);
+
+                for (size_t j = i + 2; j < stack.size(); ++j) {
+                    if (stack[j]->getWeight() == w1) {
+                        toMerge.push_back(stack[j]);
+                    } else {
+                        break;
+                    }
+                }
+
+                break;
+            }
+        }
+
+        if (toMerge.empty() && stack.size() > k) {
+            toMerge.push_back(stack[stack.size() - 2]);
+            toMerge.push_back(stack[stack.size() - 1]);
+        }
+
+        return toMerge;
     }
+    
+    void notifyFlush() const {
+        flushCount++;
+    }
+
+    size_t getFlushCount() const { return flushCount; }
+    
+    size_t getMaxDepth() const { return k; }
 };
 
 template<typename T>

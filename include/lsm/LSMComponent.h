@@ -23,11 +23,12 @@ private:
     uint64_t timestamp;
     string filename;
     size_t recordCount;
+    size_t weight;  // Peso para política Binomial (número de flushes fusionados)
 
 public:
-    LSMComponent(size_t lvl = 0, size_t dims = 2)
+    LSMComponent(size_t lvl = 0, size_t dims = 2, size_t w = 1)
         : rtree(new sp::RTree<T>(dims)), totalMBR(dims), level(lvl),
-          timestamp(0), recordCount(0) {
+          timestamp(0), recordCount(0), weight(w) {
         auto now = chrono::system_clock::now();
         auto duration = now.time_since_epoch();
         timestamp = chrono::duration_cast<chrono::milliseconds>(duration).count();
@@ -35,7 +36,7 @@ public:
     }
 
     LSMComponent(string fname, size_t dims = 2) 
-        : totalMBR(dims), level(0), timestamp(0), filename(fname), recordCount(0) {
+        : totalMBR(dims), level(0), timestamp(0), filename(fname), recordCount(0), weight(1) {
         rtree = new sp::RTree<T>(dims);
     }
 
@@ -73,6 +74,7 @@ public:
         file.write(reinterpret_cast<const char*>(&level), sizeof(level));
         file.write(reinterpret_cast<const char*>(&timestamp), sizeof(timestamp));
         file.write(reinterpret_cast<const char*>(&recordCount), sizeof(recordCount));
+        file.write(reinterpret_cast<const char*>(&weight), sizeof(weight));
         
         size_t dims = totalMBR.getLower().dimensions();
         for(size_t i=0; i<dims; ++i) {
@@ -105,6 +107,7 @@ public:
         file.read(reinterpret_cast<char*>(&level), sizeof(level));
         file.read(reinterpret_cast<char*>(&timestamp), sizeof(timestamp));
         file.read(reinterpret_cast<char*>(&recordCount), sizeof(recordCount));
+        file.read(reinterpret_cast<char*>(&weight), sizeof(weight));
 
         size_t dims = totalMBR.getLower().dimensions();
         vector<double> minCoords(dims), maxCoords(dims);
@@ -141,6 +144,7 @@ public:
         file.read((char*)&level, sizeof(level));
         file.read((char*)&timestamp, sizeof(timestamp));
         file.read((char*)&recordCount, sizeof(recordCount));
+        file.read((char*)&weight, sizeof(weight));
 
         size_t dims = totalMBR.getLower().dimensions();
         vector<double> minCoords(dims), maxCoords(dims);
@@ -170,6 +174,10 @@ public:
     size_t size() const { return recordCount; }
 
     const string& getFilename() const { return filename; }
+    
+    size_t getWeight() const { return weight; }
+    
+    void setWeight(size_t w) { weight = w; }
 };
 
 }
