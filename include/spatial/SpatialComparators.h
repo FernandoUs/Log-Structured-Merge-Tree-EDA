@@ -11,11 +11,11 @@ using namespace std;
 
 namespace spatial {
 
-int normalize(double value, double min, double max, int order) {
+inline int normalize(double value, double min, double max, int order) {
     if (max <= min) return 0;
     double span = max - min;
     double t = (value - min) / span;
-    if (t < 0) t = 0; 
+    if (t < 0) t = 0;
     if (t > 1) t = 1;
     int levels = 1 << order;
     return static_cast<int>(t * (levels - 1));
@@ -26,9 +26,9 @@ struct SpatialRecord {
     Point point;
     T data;
     bool isTombstone;
-    
+
     SpatialRecord() : point(), data(), isTombstone(false) {}
-    SpatialRecord(const Point& p, const T& d, bool tombstone = false) 
+    SpatialRecord(const Point& p, const T& d, bool tombstone = false)
         : point(p), data(d), isTombstone(tombstone) {}
 };
 
@@ -52,7 +52,7 @@ public:
         }
         return p1.dimensions() < p2.dimensions();
     }
-    
+
     bool operator()(const Point& p1, const Point& p2) const {
         size_t d = min(p1.dimensions(), p2.dimensions());
         for (size_t i = 0; i < d; ++i) {
@@ -86,29 +86,29 @@ private:
         }
         return index;
     }
-    
+
 public:
     uint64_t computeHilbertIndex(const Point& p, const MBR& bounds) const {
         int order = min(MAX_ITERATIONS, 15);
-        
+
         if (p.dimensions() < 2) return 0;
 
         double minx = bounds.getLower()[0];
         double miny = bounds.getLower()[1];
         double maxx = bounds.getUpper()[0];
         double maxy = bounds.getUpper()[1];
-        
+
         int nx = normalize(p[0], minx, maxx, order);
         int ny = normalize(p[1], miny, maxy, order);
-        
+
         return hilbertIndex2D(nx, ny, order);
     }
-    
+
     template<typename T>
     bool operator()(const SpatialRecord<T>& a, const SpatialRecord<T>& b, const MBR& bounds) const {
         return computeHilbertIndex(a.point, bounds) < computeHilbertIndex(b.point, bounds);
     }
-    
+
     bool operator()(const Point& p1, const Point& p2, const MBR& bounds) const {
         return computeHilbertIndex(p1, bounds) < computeHilbertIndex(p2, bounds);
     }

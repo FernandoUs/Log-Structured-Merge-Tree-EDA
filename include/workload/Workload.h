@@ -87,6 +87,21 @@ public:
         return centers;
     }
     
+    sp::MBR generateDataDrivenQuery(double selectivity, const sp::Point& centerPoint) 
+    {
+        double totalArea = 360.0 * 180.0;
+        double queryArea = totalArea * selectivity;
+        double side = sqrt(queryArea);
+        double halfSide = side / 2.0;
+
+        double x1 = max(-180.0, centerPoint[0] - halfSide);
+        double y1 = max(-90.0,  centerPoint[1] - halfSide);
+        double x2 = min(180.0,  centerPoint[0] + halfSide);
+        double y2 = min(90.0,   centerPoint[1] + halfSide);
+
+        return sp::MBR(sp::Point({x1, y1}), sp::Point({x2, y2}));
+    }
+
     sp::MBR generateQueryBox(double selectivity) {
         uniform_real_distribution<double> distLon(-180.0, 180.0);
         uniform_real_distribution<double> distLat(-90.0, 90.0);
@@ -118,16 +133,20 @@ private:
     lsm::LSMTree<T>& lsmTree;
     DatasetGenerator generator;
     const size_t BATCH_SIZE = 10000;
-
+    vector<sp::Point> dataSample;
 public:
-    WorkloadExecutor(lsm::LSMTree<T>& tree) : lsmTree(tree) {}
-    
+    WorkloadExecutor(lsm::LSMTree<T>& tree) : lsmTree(tree) {
+        dataSample.reserve(1000);
+    }    
+
+    const vector<sp::Point>& getDataSample() const { return dataSample; }
+
     void executeIngestion(size_t totalRecords, bool isClustered, 
                          const vector<sp::Point>& centers, double radius, size_t startId = 0) {
         
         size_t remaining = totalRecords;
         size_t currentId = startId;
-        
+        size_t sampleRate = max((size_t)1, totalRecords / 1000);
         while (remaining > 0) {
             size_t currentBatch = min(BATCH_SIZE, remaining);
             vector<sp::SpatialRecord<T>> batch;
@@ -140,6 +159,12 @@ public:
             
             for (const auto& rec : batch) {
                 lsmTree.insert(rec.point, rec.data);
+                if (dataSample.size() < 1000) {
+                    dataSample.push_back(rec.point);
+                } else if (rand() % sampleRate == 0) {
+                    size_t idx = rand() % dataSample.size();
+                    dataSample[idx] = rec.point;
+                }
             }
             
             remaining -= currentBatch;

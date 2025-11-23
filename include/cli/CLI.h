@@ -1,5 +1,7 @@
 #pragma once
-
+#include <fstream>
+#include <vector>
+#include <iomanip>
 #include "../sql/QueryExecutor.h"
 #include "../workload/Workload.h"
 #include <iostream>
@@ -22,7 +24,135 @@ namespace cli
         lsm::GlobalBudget *globalBudget;
         QueryExecutor<T> executor;
         bool running;
+        struct ExperimentConfig {
+                string policy;
+                int param;
+                string comparator;
+                string partition; 
+                string alias;
+            };
 
+            void runFullExperiment() {
+                cout << "========================================\n";
+                cout << "   INICIANDO EXPERIMENTO AUTOMATIZADO   \n";
+                cout << "========================================\n";
+
+                vector<ExperimentConfig> configs = {
+
+                    {"Tiered", 4, "Simple", "None", "Tiered-B4-Simple"},
+                    {"Tiered", 4, "Hilbert", "None", "Tiered-B4-Hilbert"},
+                    {"Tiered", 10, "Simple", "None", "Tiered-B10-Simple"},
+                    {"Tiered", 10, "Hilbert", "None", "Tiered-B10-Hilbert"},
+                    
+                    {"Binomial", 4, "Simple", "None", "Binomial-K4-Simple"},
+                    {"Binomial", 4, "Hilbert", "None", "Binomial-K4-Hilbert"},
+                    {"Binomial", 10, "Simple", "None", "Binomial-K10-Simple"},
+                    {"Binomial", 10, "Hilbert", "None", "Binomial-K10-Hilbert"},
+                    
+                    {"Concurrent", 2, "Simple", "None", "Concurrent-Simple"},
+                    {"Concurrent", 2, "Hilbert", "None", "Concurrent-Simple"}, // Corregido nombre
+
+                    {"Leveled", 4, "Simple", "Size", "Leveled-Simple-Size"},
+                    {"Leveled", 4, "Hilbert", "Size", "Leveled-Hilbert-Size"},
+                    
+                    {"Leveled", 4, "Simple", "STR", "Leveled-STR"},
+                    {"Leveled", 4, "Hilbert", "STR", "Leveled-Hilbert-STR"}, // Corregido nombre
+                    
+                    {"Leveled", 4, "Simple", "RStarGrove", "Leveled-RStarGrove"},
+                    {"Leveled", 4, "Hilbert", "RStarGrove", "Leveled-Hilbert-RStarGrove"} // Corregido nombre
+                };
+
+                string csvPath = "resultados_completo.csv";
+                ofstream csv(csvPath);
+                csv << "Alias,Policy,Param,Comparator,Partition,TotalWrites,WriteTime(s),Throughput,WA,Lat_Q1_Small(ms),Lat_Q2_Large(ms),RA_Avg\n";
+
+                string tableName = "test_lab";
+                size_t TOTAL_RECORDS = 15000000;
+
+                workload::DatasetGenerator gen;
+                sp::MBR querySmall = gen.generateQueryBox(0.0001);
+                sp::MBR queryLarge = gen.generateQueryBox(0.01);
+
+                for (const auto& cfg : configs) {
+                    cout << "\n>>> TEST: " << cfg.alias << " <<<\n";
+
+                    executor.executeClean(tableName);
+
+                    stringstream ss;
+                    ss << "CREATE TABLE " << tableName << " (id INT, loc POINT) WITH POLICY " 
+                        << cfg.policy << " " << cfg.param 
+                        << " COMPARATOR " << cfg.comparator;
+                    
+                    if (cfg.partition != "None") {
+                        ss << " PARTITION " << cfg.partition;
+                    }
+                    
+                    executor.execute(ss.str());
+
+                    auto& indices = tableIndices;
+                    if (indices.find(tableName) == indices.end()) {
+                        cout << "Error: Tabla no creada.\n"; continue;
+                    }
+                    lsm::LSMTree<T>* tree = indices[tableName].secondary;
+                    if (!tree) { cout << "Error: Árbol nulo.\n"; continue; }
+
+                    workload::WorkloadExecutor<T> loader(*tree);
+                    auto startW = chrono::high_resolution_clock::now();
+                    
+                    loader.executeIngestion(TOTAL_RECORDS, false, {}, 0.0, 0);
+                    tree->flush();
+                    
+                    auto endW = chrono::high_resolution_clock::now();
+                    
+                    double writeSec = chrono::duration<double>(endW - startW).count();
+                    if (writeSec <= 0) writeSec = 0.001;
+
+                    auto mWrite = tree->getMetrics();
+
+                    double latSmallTotal = 0.0;
+                    double latLargeTotal = 0.0;
+                    int runs = 5;
+                    tree->resetMetrics();
+                    
+                    for(int i=0; i<runs; ++i) {
+                        auto t1 = chrono::high_resolution_clock::now();
+                        tree->spatialRangeQuery(querySmall);
+                        auto t2 = chrono::high_resolution_clock::now();
+                        latSmallTotal += chrono::duration<double>(t2 - t1).count() * 1000.0;
+                    }
+                    
+                    for(int i=0; i<runs; ++i) {
+                        auto t1 = chrono::high_resolution_clock::now();
+                        tree->spatialRangeQuery(queryLarge);
+                        auto t2 = chrono::high_resolution_clock::now();
+                        latLargeTotal += chrono::duration<double>(t2 - t1).count() * 1000.0;
+                    }
+                    
+                    auto mRead = tree->getMetrics();
+
+                    double avgLatSmall = latSmallTotal / (double)runs;
+                    double avgLatLarge = latLargeTotal / (double)runs;
+                    double avgRA = (double)mRead.readAmplification / (double)(runs * 2);
+
+                    csv << cfg.alias << "," << cfg.policy << "," << cfg.param << "," 
+                        << cfg.comparator << "," << cfg.partition << ","
+                        << mWrite.totalWrites << "," 
+                        << fixed << setprecision(4) << writeSec << ","
+                        << (TOTAL_RECORDS / writeSec) << ","
+                        << mWrite.writeAmplification << ","
+                        << avgLatSmall << ","
+                        << avgLatLarge << ","
+                        << avgRA << "\n";
+                        
+                    csv.flush();
+                    cout << "   [DONE] WA: " << mWrite.writeAmplification 
+                            << " | Lat(S): " << avgLatSmall << "ms\n";
+                }
+
+                executor.executeClean(tableName);
+                csv.close();
+                cout << "\n*** CSV GENERADO: " << csvPath << " ***\n";
+            }
     public:
         CLI()
             : catalog(),
@@ -115,12 +245,17 @@ namespace cli
 
                 if (input.empty())
                     continue;
-
+                
                 if (input == "exit" || input == "quit")
                 {
                     running = false;
                     cout << "Goodbye!\n";
                     break;
+                }
+
+                if (input == "test") {
+                    runFullExperiment();
+                    continue;
                 }
 
                 if (input == "help")

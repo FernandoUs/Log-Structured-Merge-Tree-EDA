@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 #include <fstream>
+#include <iostream>
 #include <chrono>
 #include <atomic>
 using namespace std;
@@ -45,7 +46,7 @@ public:
     ~LSMComponent() {
         delete rtree;
     }
-    
+
     void build(const vector<sp::SpatialRecord<T>>& records) {
         recordCount = records.size();
         if (records.empty()) return;
@@ -113,13 +114,13 @@ public:
 
         size_t dims = totalMBR.getLower().dimensions();
         vector<double> minCoords(dims), maxCoords(dims);
-        
+
         for(size_t i=0; i<dims; ++i) {
             file.read(reinterpret_cast<char*>(&minCoords[i]), sizeof(double));
             file.read(reinterpret_cast<char*>(&maxCoords[i]), sizeof(double));
         }
         totalMBR = sp::MBR(sp::Point(minCoords), sp::Point(maxCoords));
-    
+
         vector<sp::SpatialRecord<T>> records;
         records.reserve(recordCount);
         for (size_t i = 0; i < recordCount; ++i) {

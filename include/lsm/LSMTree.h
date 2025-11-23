@@ -42,6 +42,11 @@ namespace lsm
             subscribers.push_back(tree);
         }
 
+        void unsubscribe(ILSMTree* tree) {
+            auto it = std::remove(subscribers.begin(), subscribers.end(), tree);
+            subscribers.erase(it, subscribers.end());
+        }
+
         bool requestSpace(size_t bytesNeeded)
         {
             if (currentBytes + bytesNeeded > maxBytes)
@@ -394,6 +399,9 @@ namespace lsm
 
         ~LSMTree() override
         {
+            if (globalBudget) {
+                globalBudget->unsubscribe(this);
+            }
             flush();
             saveMetrics();
             for (LSMComponent<T> *comp : diskComponents)
@@ -497,7 +505,7 @@ namespace lsm
             diskComponents.insert(diskComponents.begin(), newComponent);
             memTable.clear();
             globalBudget->releaseSpace(bytesFreed);
-            
+
             if (auto* binomialPolicy = dynamic_cast<BinomialMergePolicy<T>*>(mergePolicy)) {
                 binomialPolicy->notifyFlush();
             }

@@ -9,6 +9,7 @@
 #include <vector>
 #include <memory>
 #include <sstream>
+#include <iostream>
 #include <fstream>
 #include <filesystem>
 #include "../json.hpp"
@@ -97,6 +98,8 @@ namespace sql
         map<string, TableSchema> tables;
         const string DATA_DIR = "data";
         const string CATALOG_FILE = "data/catalog.json";
+
+
         void saveToDisk()
         {
             if (!fs::exists(DATA_DIR))
@@ -137,6 +140,13 @@ namespace sql
         {
             loadFromDisk();
         }
+
+        void dropTable(const string& name) {
+            if (tables.erase(name)) {
+                saveToDisk();
+            }
+        }
+        
         vector<string> getAllTableNames() const
         {
             vector<string> names;
@@ -278,8 +288,9 @@ namespace sql
                                     if (ss >> cmd.create->policyName)
                                     {
                                         int val;
-                                        while (isspace(ss.peek()))
-                                            ss.ignore();
+                                        while (ss.good() && isspace(ss.peek()))
+                                            ss.get();
+
                                         if (isdigit(ss.peek()))
                                         {
                                             ss >> val;
@@ -570,7 +581,7 @@ namespace sql
             return "Error: Invalid INSERT values";
         }
 
-        string executeClean(const string &tableNameRaw)
+    string executeClean(const string &tableNameRaw)
         {
             string tableName = tableNameRaw;
             tableName.erase(0, tableName.find_first_not_of(" \t\n\r"));
@@ -596,43 +607,13 @@ namespace sql
                     uintmax_t n = fs::remove_all(tableDir);
                     cout << "[CLEAN] Deleted " << n << " files/directories." << endl;
                 }
-                fs::create_directories(tableDir);
             }
             catch (const fs::filesystem_error &e)
             {
                 return "Error deleting files: " + string(e.what());
             }
-
-            TableSchema schema = catalog.getTable(tableName);
-
-            auto *pPolicy = lsm::PolicyFactory<T>::create(schema.mergePolicy, schema.policyParam);
-            auto *sPolicy = lsm::PolicyFactory<T>::create(schema.mergePolicy, schema.policyParam);
-
-            sp::ISpatialComparator<T> *pComp = new sp::SimpleComparatorAdapter<T>();
-            sp::ISpatialComparator<T> *sComp;
-
-            if (schema.spatialComparator == "Hilbert")
-            {
-                sp::Point minP({-180.0, -90.0});
-                sp::Point maxP({180.0, 90.0});
-                sp::MBR world(minP, maxP);
-                sComp = new sp::HilbertComparatorAdapter<T>(world);
-            }
-            else
-            {
-                sComp = new sp::SimpleComparatorAdapter<T>();
-            }
-
-            string pName = tableName;
-            string sName = tableName;
-
-            TableIndex<T> newIndices;
-            newIndices.primary = new lsm::LSMTree<T>(pName, globalBudget, pPolicy, 1024, pComp, false);
-            newIndices.secondary = new lsm::LSMTree<T>(sName, globalBudget, sPolicy, 24, sComp, true);
-
-            tableIndices[tableName] = newIndices;
-
-            return "Table '" + tableName + "' cleaned successfully (Data and Metrics reset).";
+            catalog.dropTable(tableName);
+            return "Table '" + tableName + "' dropped successfully. Ready for new configuration.";
         }
 
         string executeSelect(const Command &cmd)
