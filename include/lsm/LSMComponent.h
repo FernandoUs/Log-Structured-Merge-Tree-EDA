@@ -8,7 +8,9 @@
 #include <memory>
 #include <string>
 #include <fstream>
+#include <iostream>
 #include <chrono>
+#include <atomic>
 using namespace std;
 namespace sp = spatial;
 
@@ -23,26 +25,28 @@ private:
     uint64_t timestamp;
     string filename;
     size_t recordCount;
-
+    size_t weight;  // Peso para política Binomial (número de flushes fusionados)
+    static std::atomic<uint64_t> globalIdCounter;
 public:
-    LSMComponent(size_t lvl = 0, size_t dims = 2)
+    LSMComponent(size_t lvl = 0, size_t dims = 2, size_t w = 1)
         : rtree(new sp::RTree<T>(dims)), totalMBR(dims), level(lvl),
-          timestamp(0), recordCount(0) {
+          timestamp(0), recordCount(0), weight(w) {
         auto now = chrono::system_clock::now();
         auto duration = now.time_since_epoch();
         timestamp = chrono::duration_cast<chrono::milliseconds>(duration).count();
-        filename = "component_L" + to_string(level) + "_" + to_string(timestamp) + ".dat";
+        uint64_t uniqueID = globalIdCounter.fetch_add(1);
+        filename = "component_L" + to_string(level) + "_" + to_string(timestamp) + to_string(uniqueID) + ".dat";
     }
 
     LSMComponent(string fname, size_t dims = 2) 
-        : totalMBR(dims), level(0), timestamp(0), filename(fname), recordCount(0) {
+        : totalMBR(dims), level(0), timestamp(0), filename(fname), recordCount(0), weight(1) {
         rtree = new sp::RTree<T>(dims);
     }
 
     ~LSMComponent() {
         delete rtree;
     }
-    
+
     void build(const vector<sp::SpatialRecord<T>>& records) {
         recordCount = records.size();
         if (records.empty()) return;
@@ -73,6 +77,7 @@ public:
         file.write(reinterpret_cast<const char*>(&level), sizeof(level));
         file.write(reinterpret_cast<const char*>(&timestamp), sizeof(timestamp));
         file.write(reinterpret_cast<const char*>(&recordCount), sizeof(recordCount));
+        file.write(reinterpret_cast<const char*>(&weight), sizeof(weight));
         
         size_t dims = totalMBR.getLower().dimensions();
         for(size_t i=0; i<dims; ++i) {
@@ -105,16 +110,17 @@ public:
         file.read(reinterpret_cast<char*>(&level), sizeof(level));
         file.read(reinterpret_cast<char*>(&timestamp), sizeof(timestamp));
         file.read(reinterpret_cast<char*>(&recordCount), sizeof(recordCount));
+        file.read(reinterpret_cast<char*>(&weight), sizeof(weight));
 
         size_t dims = totalMBR.getLower().dimensions();
         vector<double> minCoords(dims), maxCoords(dims);
-        
+
         for(size_t i=0; i<dims; ++i) {
             file.read(reinterpret_cast<char*>(&minCoords[i]), sizeof(double));
             file.read(reinterpret_cast<char*>(&maxCoords[i]), sizeof(double));
         }
         totalMBR = sp::MBR(sp::Point(minCoords), sp::Point(maxCoords));
-    
+
         vector<sp::SpatialRecord<T>> records;
         records.reserve(recordCount);
         for (size_t i = 0; i < recordCount; ++i) {
@@ -141,6 +147,7 @@ public:
         file.read((char*)&level, sizeof(level));
         file.read((char*)&timestamp, sizeof(timestamp));
         file.read((char*)&recordCount, sizeof(recordCount));
+        file.read((char*)&weight, sizeof(weight));
 
         size_t dims = totalMBR.getLower().dimensions();
         vector<double> minCoords(dims), maxCoords(dims);
@@ -167,9 +174,17 @@ public:
 
     uint64_t getTimestamp() const { return timestamp; }
 
+    size_t getRecordCount() const { return this->recordCount; }
+    
     size_t size() const { return recordCount; }
 
     const string& getFilename() const { return filename; }
-};
+    
+    size_t getWeight() const { return weight; }
+    
+    void setWeight(size_t w) { weight = w; }
 
+};
+    template<typename T>
+    std::atomic<uint64_t> LSMComponent<T>::globalIdCounter(0);
 }

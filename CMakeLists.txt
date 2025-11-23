@@ -17,6 +17,28 @@ endif()
 
 include_directories(${PROJECT_SOURCE_DIR}/include)
 
+# Buscar dependencias para la GUI
+find_package(OpenGL REQUIRED)
+find_package(glfw3 3.3 REQUIRED)
+
+# ImGui sources
+set(IMGUI_DIR ${PROJECT_SOURCE_DIR}/external/imgui)
+set(IMGUI_SOURCES
+    ${IMGUI_DIR}/imgui.cpp
+    ${IMGUI_DIR}/imgui_demo.cpp
+    ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp
+    ${IMGUI_DIR}/imgui_widgets.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+)
+
+include_directories(
+    ${IMGUI_DIR}
+    ${IMGUI_DIR}/backends
+)
+
+# CLI version (sin GUI)
 set(SOURCES
     src/main.cpp
 )
@@ -43,7 +65,40 @@ set_target_properties(lsm_spatial_db PROPERTIES
     CXX_EXTENSIONS OFF
 )
 
-install(TARGETS lsm_spatial_db DESTINATION bin)
+# GUI version
+set(GUI_SOURCES
+    src/main_gui.cpp
+    src/gui/GUI.cpp
+    ${IMGUI_SOURCES}
+)
+
+set(GUI_HEADERS
+    ${HEADERS}
+    include/gui/GUI.h
+)
+
+add_executable(lsm_spatial_db_gui ${GUI_SOURCES} ${GUI_HEADERS})
+
+set_target_properties(lsm_spatial_db_gui PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+target_link_libraries(lsm_spatial_db_gui
+    OpenGL::GL
+    glfw
+)
+
+if(APPLE)
+    target_link_libraries(lsm_spatial_db_gui
+        "-framework Cocoa"
+        "-framework IOKit"
+        "-framework CoreVideo"
+    )
+endif()
+
+install(TARGETS lsm_spatial_db lsm_spatial_db_gui DESTINATION bin)
 
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "C++ compiler: ${CMAKE_CXX_COMPILER}")
