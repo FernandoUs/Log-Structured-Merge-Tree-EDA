@@ -2,6 +2,13 @@
 
 Sistema de base de datos espacial basado en LSM-Tree con índices R-Tree, implementado en C++.
 
+## Integrantes
+
+- Flavio Jose Tipula Meza <flavio.tipula@utec.edu.pe>
+- Aaron Cesar Aldair Navarro Mendoza <aaron.navarro@utec.edu.pe>
+- Fernando Alonso Usurin Arias <fernando.usurin@utec.edu.pe>
+- Fabryzzio Jossue Meza Torres <fabryzzio.meza@utec.edu.pe>
+
 ## Inicio Rápido
 
 ```zsh
