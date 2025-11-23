@@ -4,7 +4,7 @@
 
 using namespace std;
 
-int main(int argc, char* argv[]) {
+int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     try {
         cli::CLI<int> app;
         app.start();

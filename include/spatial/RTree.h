@@ -58,7 +58,7 @@ private:
     size_t minEntriesPerNode;
     size_t dimensions;
 
-    RTreeNode<T>* bulkLoad(vector<SpatialRecord<T>>& records, size_t dim = 0) {
+    RTreeNode<T>* bulkLoad(vector<SpatialRecord<T>>& records, [[maybe_unused]] size_t dim = 0) {
         if (records.empty()) return nullptr;
 
         sort(records.begin(), records.end(), [](const SpatialRecord<T>& a, const SpatialRecord<T>& b) {
@@ -72,7 +72,7 @@ private:
 
         for (size_t i = 0; i < numLeaves; ++i) {
             RTreeNode<T>* leaf = new RTreeNode<T>(true);
-            
+
             size_t count = 0;
             while (it != records.end() && count < maxEntriesPerNode) {
                 leaf->records.push_back(*it);

@@ -1,15 +1,21 @@
+#if defined(__APPLE__)
+#define GL_SILENCE_DEPRECATION
+#endif
+
 #include "../../include/gui/GUI.h"
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 #include <GLFW/glfw3.h>
 #include <iostream>
+#include <fstream>
 #include <sstream>
+#include <iomanip>
 #include <algorithm>
 #include <thread>
+#include <cstdio>
 
 #if defined(__APPLE__)
-#define GL_SILENCE_DEPRECATION
 #include <OpenGL/gl.h>
 #else
 #include <GL/gl.h>
@@ -32,6 +38,7 @@ SpatialGUI<T>::SpatialGUI(cli::CLI<T>* cliInstance)
     , insertY(0.0f)
     , insertValue(0)
     , isBenchmarkRunning(false)
+    , benchmarkSize(150000)
 {
     memset(tableNameBuffer, 0, sizeof(tableNameBuffer));
     memset(sqlCommandBuffer, 0, sizeof(sqlCommandBuffer));
@@ -191,11 +198,13 @@ void SpatialGUI<T>::renderMainWindow() {
         if (strlen(tableNameBuffer) > 0) {
             std::stringstream ss;
             ss << "CREATE TABLE " << tableNameBuffer
-               << " (id INT, location POINT, value DOUBLE) with policy "
+               << " (id INT, location POINT, value DOUBLE) WITH POLICY "
                << policies[currentPolicy] << " " << policyParam
                << " COMPARATOR " << comparators[currentComparator];
-            executeSQL(ss.str());
+            std::string result = cli->executeCommand(ss.str());
+            addLog(result);
             memset(tableNameBuffer, 0, sizeof(tableNameBuffer));
+            loadTableData();
         }
     }
 
@@ -234,6 +243,25 @@ void SpatialGUI<T>::renderVisualizationWindow() {
         loadTableData();
     }
 
+    // Mostrar info de bounding box si hay datos
+    if (!currentTableData.empty()) {
+        double minX = currentTableData[0].point[0];
+        double maxX = currentTableData[0].point[0];
+        double minY = currentTableData[0].point[1];
+        double maxY = currentTableData[0].point[1];
+
+        for (const auto& record : currentTableData) {
+            minX = std::min(minX, record.point[0]);
+            maxX = std::max(maxX, record.point[0]);
+            minY = std::min(minY, record.point[1]);
+            maxY = std::max(maxY, record.point[1]);
+        }
+
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+            "| Rango: X[%.1f, %.1f] Y[%.1f, %.1f]", minX, maxX, minY, maxY);
+    }
+
     ImGui::Separator();
 
     // Canvas para visualización
@@ -257,7 +285,7 @@ void SpatialGUI<T>::renderVisualizationWindow() {
         float wheel = ImGui::GetIO().MouseWheel;
         if (wheel != 0) {
             viewScale *= (1.0f + wheel * 0.1f);
-            viewScale = std::max(0.1f, std::min(viewScale, 10.0f));
+            viewScale = std::max(0.1f, std::min(viewScale, 50.0f));
         }
 
         // Pan con click derecho
@@ -323,6 +351,10 @@ void SpatialGUI<T>::renderVisualizationWindow() {
     ImGui::Text("Zoom: %.2fx | Offset: (%.1f, %.1f) | Resultados: %lu",
         viewScale, viewOffsetX, viewOffsetY, queryResults.size());
 
+    if (ImGui::Button("🔄 Auto-Ajustar")) {
+        autoFitView();
+    }
+    ImGui::SameLine();
     if (ImGui::Button("Reset Vista")) {
         viewOffsetX = viewOffsetY = 0.0f;
         viewScale = 1.0f;
@@ -409,26 +441,9 @@ void SpatialGUI<T>::renderControlPanel() {
                 std::stringstream ss;
                 ss << "INSERT INTO " << selectedTable << " VALUES ("
                    << insertX << ", " << insertY << ", " << insertValue << ")";
-                executeSQL(ss.str());
+                std::string result = cli->executeCommand(ss.str());
+                addLog(result);
                 loadTableData();
-            }
-
-            ImGui::Spacing();
-
-            static int numRandomPoints = 1000;
-            ImGui::InputInt("Puntos Aleatorios", &numRandomPoints);
-            if (ImGui::Button("🎲 Insertar Aleatorios", ImVec2(-1, 0))) {
-                for (int i = 0; i < numRandomPoints; ++i) {
-                    float rx = (rand() % 2000 - 1000) / 10.0f;
-                    float ry = (rand() % 2000 - 1000) / 10.0f;
-                    int rv = rand() % 1000;
-                    std::stringstream ss;
-                    ss << "INSERT INTO " << selectedTable << " VALUES ("
-                       << rx << ", " << ry << ", " << rv << ")";
-                    executeSQL(ss.str());
-                }
-                loadTableData();
-                addLog("Insertados " + std::to_string(numRandomPoints) + " puntos aleatorios");
             }
         }
     }
@@ -437,8 +452,8 @@ void SpatialGUI<T>::renderControlPanel() {
         if (selectedTable.empty()) {
             ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Selecciona una tabla primero");
         } else {
-            static int benchmarkSize = 100000;
             ImGui::InputInt("Registros", &benchmarkSize);
+            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Cantidad de puntos aleatorios a insertar");
 
             if (isBenchmarkRunning) {
                 ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "⏳ Ejecutando...");
@@ -463,7 +478,13 @@ void SpatialGUI<T>::renderControlPanel() {
             ImVec2(-1, 100));
 
         if (ImGui::Button("▶️ Ejecutar SQL", ImVec2(-1, 0))) {
-            executeSQL(std::string(sqlCommandBuffer));
+            if (strlen(sqlCommandBuffer) > 0) {
+                std::string cmd(sqlCommandBuffer);
+                std::string result = cli->executeCommand(cmd);
+                addLog("SQL: " + cmd);
+                addLog("Resultado: " + result);
+                loadTableData();
+            }
         }
     }
 
@@ -474,7 +495,44 @@ void SpatialGUI<T>::renderControlPanel() {
             if (ImGui::Button("🗑️ Limpiar Tabla", ImVec2(-1, 0))) {
                 std::string result = cli->executeCommand("clean " + selectedTable);
                 addLog(result);
-                loadTableData();
+                selectedTable.clear();
+                currentTableData.clear();
+                queryResults.clear();
+            }
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Importar Datos")) {
+        static char csvPath[256] = "";
+        static char csvTableName[128] = "";
+
+        ImGui::Text("Importar desde CSV (id, x, y):");
+        ImGui::InputText("Ruta CSV", csvPath, sizeof(csvPath));
+        ImGui::InputText("Nombre Tabla##csv", csvTableName, sizeof(csvTableName));
+
+        if (ImGui::Button("📂 Cargar CSV", ImVec2(-1, 0))) {
+            if (strlen(csvPath) > 0 && strlen(csvTableName) > 0) {
+                handleCSVImport(std::string(csvPath), std::string(csvTableName));
+            } else {
+                addLog("Error: Especifica ruta y nombre de tabla");
+            }
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+
+        static char imagePath[256] = "";
+        static char imageTableName[128] = "";
+
+        ImGui::Text("Convertir Imagen a Puntos:");
+        ImGui::InputText("Ruta Imagen", imagePath, sizeof(imagePath));
+        ImGui::InputText("Nombre Tabla##img", imageTableName, sizeof(imageTableName));
+
+        if (ImGui::Button("🖼️ Cargar Imagen", ImVec2(-1, 0))) {
+            if (strlen(imagePath) > 0 && strlen(imageTableName) > 0) {
+                handleImageImport(std::string(imagePath), std::string(imageTableName));
+            } else {
+                addLog("Error: Especifica ruta y nombre de tabla");
             }
         }
     }
@@ -507,7 +565,7 @@ void SpatialGUI<T>::renderQueryWindow() {
             ImGui::TableNextColumn();
             ImGui::Text("%.2f", rec.point[1]);
             ImGui::TableNextColumn();
-            ImGui::Text("%d", rec.data);
+            ImGui::Text("%f", (double)rec.data);
         }
 
         if (queryResults.size() > 50) {
@@ -580,14 +638,76 @@ void SpatialGUI<T>::loadTableData() {
 
     auto* tree = cli->getTableIndices()[selectedTable].secondary;
 
-    // Obtener todos los datos (consulta completa)
-    sp::Point minP({-1e6, -1e6});
-    sp::Point maxP({1e6, 1e6});
+    // Obtener todos los datos (consulta completa con rango muy amplio)
+    sp::Point minP({-1e9, -1e9});
+    sp::Point maxP({1e9, 1e9});
     sp::MBR fullBox(minP, maxP);
 
     currentTableData = tree->spatialRangeQuery(fullBox);
 
     addLog("Tabla cargada: " + std::to_string(currentTableData.size()) + " registros");
+
+    // Auto-ajustar vista a los datos cargados
+    if (!currentTableData.empty()) {
+        autoFitView();
+    }
+}
+
+template<typename T>
+void SpatialGUI<T>::autoFitView() {
+    if (currentTableData.empty()) {
+        return;
+    }
+
+    // Calcular bounding box de todos los puntos
+    double minX = currentTableData[0].point[0];
+    double maxX = currentTableData[0].point[0];
+    double minY = currentTableData[0].point[1];
+    double maxY = currentTableData[0].point[1];
+
+    for (const auto& record : currentTableData) {
+        double x = record.point[0];
+        double y = record.point[1];
+
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+    }
+
+    // Calcular centro y escala
+    double centerX = (minX + maxX) / 2.0;
+    double centerY = (minY + maxY) / 2.0;
+    double rangeX = maxX - minX;
+    double rangeY = maxY - minY;
+
+    // Evitar división por cero
+    if (rangeX < 0.001) rangeX = 100.0;
+    if (rangeY < 0.001) rangeY = 100.0;
+
+    // Calcular escala para que quepa todo en la vista
+    // Usamos el 80% del canvas para dejar margen
+    float canvasWidth = 700.0f;  // Aproximado
+    float canvasHeight = 500.0f;
+
+    float scaleX = (canvasWidth * 0.8f) / rangeX;
+    float scaleY = (canvasHeight * 0.8f) / rangeY;
+
+    // Usar la escala menor para que todo quepa
+    viewScale = std::min(scaleX, scaleY);
+
+    // Limitar escala mínima y máxima
+    if (viewScale < 0.0001f) viewScale = 0.0001f;
+    if (viewScale > 100.0f) viewScale = 1.0f;
+
+    // Centrar la vista en el centro de los datos
+    viewOffsetX = -centerX;
+    viewOffsetY = -centerY;
+
+    std::stringstream ss;
+    ss << "Vista auto-ajustada: Centro(" << centerX << ", " << centerY
+       << ") Escala: " << viewScale;
+    addLog(ss.str());
 }
 
 template<typename T>
@@ -595,6 +715,7 @@ void SpatialGUI<T>::executeSQL(const std::string& sql) {
     std::string result = cli->executeCommand(sql);
     addLog("SQL: " + sql);
     addLog("Resultado: " + result);
+    loadTableData();
 }
 
 template<typename T>
@@ -623,11 +744,242 @@ void SpatialGUI<T>::handleBenchmark() {
     }
 
     benchmarkStatus = "Ejecutando benchmark...";
-    std::string cmd = "benchmark " + selectedTable;
-    std::string result = cli->executeCommand(cmd);
-    benchmarkStatus = "Completado: " + result;
+    addLog("Iniciando benchmark en tabla: " + selectedTable);
+
+    std::stringstream cmd;
+    cmd << "benchmark " << selectedTable << " " << benchmarkSize;
+    std::string result = cli->executeCommand(cmd.str());
+
+    benchmarkStatus = "Completado";
     addLog("Benchmark finalizado: " + result);
     loadTableData();
+}
+
+template<typename T>
+void SpatialGUI<T>::handleCSVImport(const std::string& filepath, const std::string& tableName) {
+    addLog("Iniciando importación CSV desde: " + filepath);
+
+    std::ifstream file(filepath);
+    if (!file.is_open()) {
+        addLog("Error: No se pudo abrir el archivo CSV");
+        return;
+    }
+
+    // Crear tabla si no existe
+    std::stringstream createCmd;
+    createCmd << "CREATE TABLE " << tableName << " (id INT, location POINT, value DOUBLE) WITH POLICY Tiered 4 COMPARATOR Simple";
+    std::string result = cli->executeCommand(createCmd.str());
+    addLog("Crear tabla: " + result);
+
+    // Leer CSV
+    std::string line;
+    bool firstLine = true;
+    int count = 0;
+    int errors = 0;
+
+    // Auto-detectar delimitador
+    char delimiter = ',';
+
+    while (std::getline(file, line)) {
+        // Limpiar espacios en blanco al inicio y final
+        line.erase(0, line.find_first_not_of(" \t\r\n"));
+        line.erase(line.find_last_not_of(" \t\r\n") + 1);
+
+        if (line.empty()) continue;
+
+        // Saltar primera línea si es header
+        if (firstLine) {
+            firstLine = false;
+            // Auto-detectar delimitador
+            if (line.find('\t') != std::string::npos) {
+                delimiter = '\t';
+                addLog("Delimitador detectado: TAB");
+            } else {
+                delimiter = ',';
+                addLog("Delimitador detectado: COMA");
+            }
+            // Verificar si es header (contiene letras)
+            if (line.find("id") != std::string::npos || line.find("x") != std::string::npos) {
+                continue;
+            }
+        }
+
+        // Parsear línea: id, x, y
+        std::stringstream ss(line);
+        std::string id_str, x_str, y_str;
+
+        if (!std::getline(ss, id_str, delimiter) ||
+            !std::getline(ss, x_str, delimiter) ||
+            !std::getline(ss, y_str, delimiter)) {
+            errors++;
+            if (errors <= 5) {
+                addLog("Error parseando línea: " + line);
+            }
+            continue;
+        }
+
+        // Trim espacios de cada campo
+        auto trim = [](std::string& s) {
+            s.erase(0, s.find_first_not_of(" \t\r\n"));
+            s.erase(s.find_last_not_of(" \t\r\n") + 1);
+        };
+        trim(id_str);
+        trim(x_str);
+        trim(y_str);
+
+        try {
+            double x = std::stod(x_str);
+            double y = std::stod(y_str);
+            long long id = std::stoll(id_str);
+
+            std::stringstream insertCmd;
+            // Usar precision completa para coordenadas grandes
+            insertCmd << std::fixed << std::setprecision(10);
+            insertCmd << "INSERT INTO " << tableName << " VALUES ("
+                      << x << ", " << y << ", " << id << ")";
+            cli->executeCommand(insertCmd.str());
+            count++;
+
+            if (count % 1000 == 0) {
+                addLog("Procesados " + std::to_string(count) + " registros...");
+            }
+        } catch (const std::exception& e) {
+            errors++;
+            if (errors <= 5) {
+                addLog("Error convirtiendo datos: " + std::string(e.what()));
+            }
+        }
+    }
+
+    file.close();
+
+    selectedTable = tableName;
+    loadTableData();
+
+    std::stringstream summary;
+    summary << "CSV importado: " << count << " puntos cargados en tabla '" << tableName << "'";
+    if (errors > 0) {
+        summary << " (" << errors << " errores ignorados)";
+    }
+    addLog(summary.str());
+}
+
+template<typename T>
+void SpatialGUI<T>::handleImageImport(const std::string& filepath, const std::string& tableName) {
+    addLog("Iniciando conversión de imagen: " + filepath);
+
+    // Verificar extensión
+    std::string ext = filepath.substr(filepath.find_last_of(".") + 1);
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+    if (ext != "png" && ext != "jpg" && ext != "jpeg" && ext != "bmp") {
+        addLog("Error: Formato no soportado. Use PNG, JPG o BMP");
+        return;
+    }
+
+    // Crear script Python temporal para procesar la imagen (optimizado para siluetas)
+    std::string pythonScript = R"(
+import sys
+from PIL import Image
+import numpy as np
+
+def image_to_points(image_path, output_csv):
+    try:
+        img = Image.open(image_path)
+
+        # Convertir a escala de grises
+        img_gray = img.convert('L')
+
+        # Redimensionar manteniendo aspect ratio (máximo 800x800 para mejor detalle)
+        max_size = 800
+        if img_gray.width > max_size or img_gray.height > max_size:
+            img_gray.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+
+        # Convertir a numpy array
+        pixels = np.array(img_gray)
+
+        # Obtener dimensiones
+        height, width = pixels.shape
+
+        # Generar puntos solo en píxeles negros (siluetas/contornos)
+        points = []
+        threshold = 128  # Píxeles más oscuros que este valor se consideran negros
+
+        # Optimización: procesar solo píxeles negros
+        black_pixels = np.where(pixels < threshold)
+
+        # Crear puntos a partir de píxeles negros con muestreo
+        scale_x = 100.0 / width
+        scale_y = 100.0 / height
+
+        # Reducir densidad: tomar cada N píxeles (ajusta sampling_rate para más/menos puntos)
+        sampling_rate = 3  # Tomar 1 de cada 3 píxeles (reduce ~66% de puntos)
+
+        for i in range(0, len(black_pixels[0]), sampling_rate):
+            y = black_pixels[0][i]
+            x = black_pixels[1][i]
+
+            # Normalizar coordenadas a rango [0, 100]
+            nx = x * scale_x
+            ny = (height - y - 1) * scale_y  # Invertir Y para que coincida con coord cartesianas
+
+            points.append(f"{len(points)}\t{nx:.6f}\t{ny:.6f}\n")
+
+        # Guardar a CSV
+        with open(output_csv, 'w') as f:
+            f.write("id\tx\ty\n")
+            f.writelines(points)
+
+        print(f"SUCCESS: {len(points)} points generated from silhouette")
+        return 0
+    except Exception as e:
+        print(f"ERROR: {str(e)}")
+        return 1
+
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        print("Usage: python script.py <image_path> <output_csv>")
+        sys.exit(1)
+    sys.exit(image_to_points(sys.argv[1], sys.argv[2]))
+)";
+
+    // Guardar script temporal
+    std::string scriptPath = "/tmp/image_to_points.py";
+    std::ofstream scriptFile(scriptPath);
+    scriptFile << pythonScript;
+    scriptFile.close();
+
+    // Ejecutar script Python
+    std::string outputCSV = "/tmp/image_points_" + tableName + ".csv";
+    std::string command = "python3 " + scriptPath + " \"" + filepath + "\" \"" + outputCSV + "\" 2>&1";
+
+    addLog("Ejecutando conversión de imagen...");
+
+    FILE* pipe = popen(command.c_str(), "r");
+    if (!pipe) {
+        addLog("Error: No se pudo ejecutar Python");
+        return;
+    }
+
+    char buffer[256];
+    std::string pyOutput;
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        pyOutput += buffer;
+    }
+    int status = pclose(pipe);
+
+    if (status != 0 || pyOutput.find("ERROR") != std::string::npos) {
+        addLog("Error en conversión: " + pyOutput);
+        return;
+    }
+
+    addLog("Imagen convertida. Importando puntos...");
+
+    // Importar el CSV generado
+    handleCSVImport(outputCSV, tableName);
+
+    // Limpiar archivo temporal
+    std::remove(outputCSV.c_str());
 }
 
 // Instanciación explícita de templates

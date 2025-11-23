@@ -163,11 +163,11 @@ namespace lsm
 
     private:
         vector<LSMComponent<T> *> strPartitionRecursive(
-            const vector<sp::SpatialRecord<T>> &records,
-            size_t targetLevel,
-            size_t dimensions,
-            size_t maxComponentSize,
-            size_t currentDim) const
+            [[maybe_unused]] const vector<sp::SpatialRecord<T>> &records,
+            [[maybe_unused]] size_t targetLevel,
+            [[maybe_unused]] size_t dimensions,
+            [[maybe_unused]] size_t maxComponentSize,
+            [[maybe_unused]] size_t currentDim) const
         {
             return {};
         }

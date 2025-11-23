@@ -29,13 +29,51 @@ sudo apt-get install libglfw3-dev
 - Visualización espacial 2D interactiva
 - Consultas mediante selección con mouse
 - Métricas en tiempo real (Write/Read Amplification)
-- Benchmark integrado
+- **Benchmark parametrizado** con cantidad configurable
+- **Importación de CSV** con puntos espaciales
+- **Conversión de imágenes** a nubes de puntos
 - Panel SQL completo
 
 ### Controles
 - **Click Izq + Drag**: Consulta espacial
 - **Click Der + Drag**: Pan
 - **Scroll**: Zoom
+
+### Nuevas Funcionalidades 🆕
+
+#### 1. Benchmark Parametrizado
+```bash
+benchmark <tabla> [cantidad]  # Default: 150,000 puntos
+benchmark points 1000000      # 1 millón de puntos
+```
+
+#### 2. Importar CSV
+Formato esperado:
+```
+id	x	y
+1	276583.09	8661104.48
+2	275011.28	8663425.07
+```
+
+#### 3. Convertir Imagen a Puntos
+**Requisitos:**
+```bash
+pip3 install pillow
+```
+
+**Uso standalone:**
+```bash
+python3 image_to_points.py logo.png output.csv
+```
+
+**Desde GUI:** Panel "Importar Datos" → Cargar Imagen
+
+Ver [GUI_USAGE.md](GUI_USAGE.md) para documentación completa.
+
+## 📊 Archivos de Ejemplo
+
+- `sample_data.csv`: CSV de ejemplo con 10 puntos
+- `image_to_points.py`: Script Python para conversión de imágenes
 
 ## ⚙️ Políticas de Merge
 

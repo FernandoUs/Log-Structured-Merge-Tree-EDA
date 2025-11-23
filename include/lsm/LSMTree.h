@@ -109,9 +109,10 @@ namespace lsm
             }
         }
 
-        bool remove(const sp::Point &point, size_t customSize)
+        bool remove([[maybe_unused]] const sp::Point &point, [[maybe_unused]] size_t customSize)
         {
             // * No hace nada en HD*
+            return false;
         }
 
         vector<sp::SpatialRecord<T>> rangeSearch(const sp::MBR &queryBox) const
@@ -121,7 +122,6 @@ namespace lsm
             for (const auto &pair : data)
             {
                 const auto &record = pair.second;
-                cout << record.point[0] << ", " << record.point[1] << endl;
                 if (queryBox.contains(record.point))
                 {
                     results.push_back(record);
@@ -321,7 +321,7 @@ namespace lsm
                     }
                     if (comp->getLevel() <= victims[0]->getLevel()) {
 
-                        
+
                         cout << "[WARNING] Componente no promovido de nivel. Bucle potencial detectado." << endl;
                     }
                     comp->clearMemoryData();
@@ -382,8 +382,8 @@ namespace lsm
 
     public:
         LSMTree(string name, GlobalBudget *budget, MergePolicy<T> *policy, size_t bytesPerRecord, sp::ISpatialComparator<T> *comp, bool persist = true, size_t dims = 2, size_t maxComponents = 10, PartitioningStrategy<T> *partStrategy = nullptr, size_t maxCompSize = 30000000)
-            : tableName(name), memTable(), dimensions(dims), maxComponentsBeforeMerge(maxComponents),
-              globalBudget(budget), recordWeight(bytesPerRecord), mergePolicy(policy), comparator(comp),
+            : memTable(), dimensions(dims), maxComponentsBeforeMerge(maxComponents),
+              globalBudget(budget), recordWeight(bytesPerRecord), mergePolicy(policy), tableName(name), comparator(comp),
               persistenceEnabled(persist), partitioningStrategy(partStrategy), maxComponentSize(maxCompSize)
         {
             if (globalBudget)
@@ -468,9 +468,10 @@ namespace lsm
             return true;
         }
 
-        bool remove(const sp::Point &point)
+        bool remove([[maybe_unused]] const sp::Point &point)
         {
             // * No hace nada en HD*
+            return false;
         }
 
         void flush() override

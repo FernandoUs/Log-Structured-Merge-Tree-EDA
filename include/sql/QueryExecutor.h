@@ -146,7 +146,7 @@ namespace sql
                 saveToDisk();
             }
         }
-        
+
         vector<string> getAllTableNames() const
         {
             vector<string> names;
@@ -562,13 +562,13 @@ namespace sql
                 sp::Point p({coords[0], coords[1]});
                 if (coords.size() > 2)
                     payload = static_cast<T>(coords[2]);
-                bool pSuccess = indices.primary->insert(p, payload);
+                // Solo insertar en el índice secondary (espacial)
                 bool sSuccess = indices.secondary->insert(p, payload);
-                if (pSuccess && sSuccess)
+                if (sSuccess)
                 {
                     const auto &metrics = indices.secondary->getMetrics();
                     stringstream ss;
-                    ss << "INSERT successful (P & S)";
+                    ss << "INSERT successful";
                     ss << "\n[W-METRICS] WA: " << metrics.writeAmplification;
                     ss << " | Total Writes: " << metrics.totalWrites;
                     return ss.str();
@@ -653,7 +653,6 @@ namespace sql
             uint64_t finalRA = tree->getMetrics().readAmplification;
             uint64_t queryRA = finalRA - initialRA;
 
-            const auto &metrics = tree->getMetrics();
             stringstream ss;
             if (cmd.select->countOnly)
             {

@@ -28,7 +28,7 @@ namespace cli
                 string policy;
                 int param;
                 string comparator;
-                string partition; 
+                string partition;
                 string alias;
             };
 
@@ -43,21 +43,21 @@ namespace cli
                     {"Tiered", 4, "Hilbert", "None", "Tiered-B4-Hilbert"},
                     {"Tiered", 10, "Simple", "None", "Tiered-B10-Simple"},
                     {"Tiered", 10, "Hilbert", "None", "Tiered-B10-Hilbert"},
-                    
+
                     {"Binomial", 4, "Simple", "None", "Binomial-K4-Simple"},
                     {"Binomial", 4, "Hilbert", "None", "Binomial-K4-Hilbert"},
                     {"Binomial", 10, "Simple", "None", "Binomial-K10-Simple"},
                     {"Binomial", 10, "Hilbert", "None", "Binomial-K10-Hilbert"},
-                    
+
                     {"Concurrent", 2, "Simple", "None", "Concurrent-Simple"},
                     {"Concurrent", 2, "Hilbert", "None", "Concurrent-Simple"}, // Corregido nombre
 
                     {"Leveled", 4, "Simple", "Size", "Leveled-Simple-Size"},
                     {"Leveled", 4, "Hilbert", "Size", "Leveled-Hilbert-Size"},
-                    
+
                     {"Leveled", 4, "Simple", "STR", "Leveled-STR"},
                     {"Leveled", 4, "Hilbert", "STR", "Leveled-Hilbert-STR"}, // Corregido nombre
-                    
+
                     {"Leveled", 4, "Simple", "RStarGrove", "Leveled-RStarGrove"},
                     {"Leveled", 4, "Hilbert", "RStarGrove", "Leveled-Hilbert-RStarGrove"} // Corregido nombre
                 };
@@ -79,14 +79,14 @@ namespace cli
                     executor.executeClean(tableName);
 
                     stringstream ss;
-                    ss << "CREATE TABLE " << tableName << " (id INT, loc POINT) WITH POLICY " 
-                        << cfg.policy << " " << cfg.param 
+                    ss << "CREATE TABLE " << tableName << " (id INT, loc POINT) WITH POLICY "
+                        << cfg.policy << " " << cfg.param
                         << " COMPARATOR " << cfg.comparator;
-                    
+
                     if (cfg.partition != "None") {
                         ss << " PARTITION " << cfg.partition;
                     }
-                    
+
                     executor.execute(ss.str());
 
                     auto& indices = tableIndices;
@@ -98,12 +98,12 @@ namespace cli
 
                     workload::WorkloadExecutor<T> loader(*tree);
                     auto startW = chrono::high_resolution_clock::now();
-                    
+
                     loader.executeIngestion(TOTAL_RECORDS, false, {}, 0.0, 0);
                     tree->flush();
-                    
+
                     auto endW = chrono::high_resolution_clock::now();
-                    
+
                     double writeSec = chrono::duration<double>(endW - startW).count();
                     if (writeSec <= 0) writeSec = 0.001;
 
@@ -113,39 +113,39 @@ namespace cli
                     double latLargeTotal = 0.0;
                     int runs = 5;
                     tree->resetMetrics();
-                    
+
                     for(int i=0; i<runs; ++i) {
                         auto t1 = chrono::high_resolution_clock::now();
                         tree->spatialRangeQuery(querySmall);
                         auto t2 = chrono::high_resolution_clock::now();
                         latSmallTotal += chrono::duration<double>(t2 - t1).count() * 1000.0;
                     }
-                    
+
                     for(int i=0; i<runs; ++i) {
                         auto t1 = chrono::high_resolution_clock::now();
                         tree->spatialRangeQuery(queryLarge);
                         auto t2 = chrono::high_resolution_clock::now();
                         latLargeTotal += chrono::duration<double>(t2 - t1).count() * 1000.0;
                     }
-                    
+
                     auto mRead = tree->getMetrics();
 
                     double avgLatSmall = latSmallTotal / (double)runs;
                     double avgLatLarge = latLargeTotal / (double)runs;
                     double avgRA = (double)mRead.readAmplification / (double)(runs * 2);
 
-                    csv << cfg.alias << "," << cfg.policy << "," << cfg.param << "," 
+                    csv << cfg.alias << "," << cfg.policy << "," << cfg.param << ","
                         << cfg.comparator << "," << cfg.partition << ","
-                        << mWrite.totalWrites << "," 
+                        << mWrite.totalWrites << ","
                         << fixed << setprecision(4) << writeSec << ","
                         << (TOTAL_RECORDS / writeSec) << ","
                         << mWrite.writeAmplification << ","
                         << avgLatSmall << ","
                         << avgLatLarge << ","
                         << avgRA << "\n";
-                        
+
                     csv.flush();
-                    cout << "   [DONE] WA: " << mWrite.writeAmplification 
+                    cout << "   [DONE] WA: " << mWrite.writeAmplification
                             << " | Lat(S): " << avgLatSmall << "ms\n";
                 }
 
@@ -245,7 +245,7 @@ namespace cli
 
                 if (input.empty())
                     continue;
-                
+
                 if (input == "exit" || input == "quit")
                 {
                     running = false;
@@ -309,7 +309,62 @@ namespace cli
         {
             try
             {
-                return executor.execute(sql);
+                // Manejar comandos especiales primero
+                string trimmedCmd = sql;
+                trimmedCmd.erase(0, trimmedCmd.find_first_not_of(" \t\n\r"));
+
+                if (trimmedCmd.rfind("clean", 0) == 0)
+                {
+                    return executor.executeClean(trimmedCmd.substr(5));
+                }
+                else if (trimmedCmd.rfind("benchmark", 0) == 0)
+                {
+                    stringstream ss(trimmedCmd);
+                    string cmd, tableName;
+                    int numRecords = 150000; // Default
+                    ss >> cmd >> tableName;
+
+                    // Intentar leer cantidad opcional
+                    if (ss >> numRecords) {
+                        // Se proporcionó cantidad
+                    } else {
+                        // Usar default
+                        numRecords = 150000;
+                    }
+
+                    if (tableName.empty())
+                    {
+                        return "Error: Usage: benchmark <table_name> [num_records]";
+                    }
+
+                    // Normalizar nombre
+                    transform(tableName.begin(), tableName.end(), tableName.begin(),
+                              [](unsigned char c) { return std::tolower(c); });
+
+                    if (!catalog.tableExists(tableName))
+                    {
+                        return "Error: Table '" + tableName + "' does not exist.";
+                    }
+
+                    lsm::LSMTree<T> *tree = tableIndices[tableName].secondary;
+                    workload::WorkloadExecutor<T> loader(*tree);
+
+                    auto start = chrono::high_resolution_clock::now();
+                    loader.executeIngestion(numRecords, false, {}, 0.0, 0);
+                    tree->flush();
+                    auto end = chrono::high_resolution_clock::now();
+                    auto duration = chrono::duration_cast<chrono::seconds>(end - start).count();
+
+                    stringstream result;
+                    result << "Benchmark completed in " << duration << " seconds. ";
+                    result << "Throughput: " << (numRecords / (duration > 0 ? duration : 1)) << " ops/sec";
+                    return result.str();
+                }
+                else
+                {
+                    // Comandos SQL normales
+                    return executor.execute(sql);
+                }
             }
             catch (const exception &e)
             {
@@ -350,7 +405,7 @@ namespace cli
                 return;
             }
 
-            size_t TOTAL_RECORDS = 15000000;
+            size_t TOTAL_RECORDS = 150000;
 
             cout << "[BENCHMARK] Starting ingestion of " << TOTAL_RECORDS << " records into '" << tableName << "'...\n";
             lsm::LSMTree<T> *tree = tableIndices[tableName].secondary;
@@ -386,7 +441,7 @@ Available Commands:
     CREATE TABLE name (col1 type1, col2 type2, ...)
     INSERT INTO table VALUES (x, y, data)
     SELECT COUNT(*) FROM table WHERE spatial_intersect(col, x1, y1, x2, y2)
-  
+
   Special Commands:
     help       - Show this help message
     metrics    - Display performance metrics

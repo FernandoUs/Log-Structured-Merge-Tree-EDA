@@ -5,7 +5,7 @@
 
 using namespace std;
 
-int main(int argc, char* argv[]) {
+int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     try {
         cli::CLI<int> app;
 
@@ -21,6 +21,7 @@ int main(int argc, char* argv[]) {
 
         visualizer.run();
 
+        app.executeCommand("exit");
         cout << "Gracias por usar el visualizador" << endl;
 
     } catch (const exception& e) {

@@ -46,6 +46,7 @@ private:
     // Benchmarking
     bool isBenchmarkRunning;
     std::string benchmarkStatus;
+    int benchmarkSize;
 
     // Tablas
     std::string selectedTable;
@@ -71,9 +72,12 @@ private:
     void screenToWorld(float sx, float sy, float& wx, float& wy, const ImVec2& canvasPos, const ImVec2& canvasSize);
 
     void loadTableData();
+    void autoFitView();
     void executeSQL(const std::string& sql);
     void addLog(const std::string& message);
     void handleBenchmark();
+    void handleCSVImport(const std::string& filepath, const std::string& tableName);
+    void handleImageImport(const std::string& filepath, const std::string& tableName);
 
 public:
     SpatialGUI(cli::CLI<T>* cliInstance);
