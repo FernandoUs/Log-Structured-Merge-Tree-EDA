@@ -2,7 +2,7 @@
 
 Sistema de base de datos espacial basado en LSM-Tree con índices R-Tree, implementado en C++.
 
-## 🚀 Inicio Rápido
+## Inicio Rápido
 
 ```zsh
 ./setup_imgui.sh
@@ -11,7 +11,7 @@ mkdir -p build && cd build && cmake .. && make
 ./lsm_spatial_db      # CLI
 ```
 
-## 📋 Requisitos
+## Requisitos
 
 **macOS:**
 ```zsh
@@ -23,7 +23,7 @@ brew install glfw
 sudo apt-get install libglfw3-dev
 ```
 
-## 🎨 Interfaz Gráfica
+## Interfaz Gráfica
 
 ### Características
 - Visualización espacial 2D interactiva
@@ -39,7 +39,7 @@ sudo apt-get install libglfw3-dev
 - **Click Der + Drag**: Pan
 - **Scroll**: Zoom
 
-### Nuevas Funcionalidades 🆕
+### Funcionalidades
 
 #### 1. Benchmark Parametrizado
 ```bash
@@ -68,32 +68,25 @@ python3 image_to_points.py logo.png output.csv
 
 **Desde GUI:** Panel "Importar Datos" → Cargar Imagen
 
-Ver [GUI_USAGE.md](GUI_USAGE.md) para documentación completa.
-
-## 📊 Archivos de Ejemplo
-
-- `sample_data.csv`: CSV de ejemplo con 10 puntos
-- `image_to_points.py`: Script Python para conversión de imágenes
-
-## ⚙️ Políticas de Merge
+## Políticas de Merge
 
 - **Binomial**: Merge basado en binomios
 - **Tiered**: Agrupa componentes por nivel
 - **Concurrent**: Merge concurrente con parámetros C, D, λ
 - **Leveled**: Un componente por nivel (WIP)
 
-## 🧭 Comparadores Espaciales
+## Comparadores Espaciales
 
 - **Simple**: Orden lexicográfico
 - **Hilbert**: Curva de Hilbert para mejor localidad espacial
 
-## 🔧 Estrategias de Particionamiento
+## Estrategias de Particionamiento
 
 - **SizePartitioning**: Particionamiento por tamaño
 - **STRPartitioning**: Sort-Tile-Recursive
 - **RStarGrovePartitioning**: Basado en R*-Grove
 
-## 📝 Comandos SQL
+## Comandos SQL
 
 ```sql
 -- Crear tabla
